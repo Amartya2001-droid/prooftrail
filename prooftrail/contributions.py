@@ -107,6 +107,7 @@ def build_map(
                 else:
                     sources.append("added")
         decl = by_version.get(label)
+        resolved: list[str] = []
         for i, (sent, src) in enumerate(zip(sents, sources)):
             if (label, i) in overrides:
                 src = overrides[(label, i)]
@@ -117,9 +118,12 @@ def build_map(
                     src = "ai-assisted"
                 else:
                     src = "human"
+            resolved.append(src)
             segments.append(Segment(sent, src, label))
         prev_text = text
-        prev_sources = sources
+        # Carry the *resolved* sources forward, so a sentence added in v2
+        # keeps its v2 source when it survives into v3.
+        prev_sources = resolved
     # Collapse consecutive same-source segments from the same version for
     # readability is intentionally NOT done: one segment per sentence keeps
     # the map auditable.
