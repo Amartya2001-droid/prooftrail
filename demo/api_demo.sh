@@ -14,11 +14,11 @@ sleep 1
 
 curl -s -X POST "$BASE/api/users" \
   -H 'Content-Type: application/json' \
-  -d '{"username":"designer","name":"Freelance Designer","password":"demo-pw"}'
+  -d '{"username":"designer","name":"Freelance Designer","password":"demo-password"}'
 echo
 TOKEN=$(curl -s -X POST "$BASE/api/sessions" \
   -H 'Content-Type: application/json' \
-  -d '{"username":"designer","password":"demo-pw"}' | jq -r .token)
+  -d '{"username":"designer","password":"demo-password"}' | jq -r .token)
 echo "token: $(printf '%s' "$TOKEN" | cut -c1-12)..."
 
 PROJECT=$(curl -s -X POST "$BASE/api/projects" \

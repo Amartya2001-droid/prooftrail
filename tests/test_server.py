@@ -44,17 +44,17 @@ class TestServer(unittest.TestCase):
         conn = self.conn()
         status, _ = call(conn, "POST", "/api/users",
                          {"username": "designer", "name": "Designer",
-                          "password": "pw"})
+                          "password": "password123"})
         self.assertEqual(status, 201)
         status, _ = call(conn, "POST", "/api/users",
                          {"username": "designer", "name": "Designer",
-                          "password": "pw"})
+                          "password": "password123"})
         self.assertEqual(status, 409)
         status, login = call(conn, "POST", "/api/sessions",
-                             {"username": "designer", "password": "wrong"})
+                             {"username": "designer", "password": "wrongpass"})
         self.assertEqual(status, 401)
         status, login = call(conn, "POST", "/api/sessions",
-                             {"username": "designer", "password": "pw"})
+                             {"username": "designer", "password": "password123"})
         self.assertEqual(status, 200)
         token = login["token"]
 
@@ -99,6 +99,7 @@ class TestServer(unittest.TestCase):
         status, _ = call(conn, "POST", f"/api/projects/{pid}/approvals",
                          {"content_id": v2["content_id"]}, token=token)
         self.assertEqual(status, 200)
+        conn.close()
 
 
 if __name__ == "__main__":
