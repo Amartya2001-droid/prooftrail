@@ -205,12 +205,13 @@ class SecurityTestCase(unittest.TestCase):
             self.assertEqual(oct(os.stat(self.state_path).st_mode & 0o777),
                              "0o600")
         state = json.loads(raw)
-        project = next(iter(state["projects"].values()))
+        project = state["projects"][pid]
+        self.assertTrue(project["events"])
         project["events"][0]["content_id"] = "sha256:" + "0" * 64
         tampered = Path(self.tmp.name) / "tampered.json"
         tampered.write_text(json.dumps(state))
         _, projects = load_state(tampered)
-        loaded = next(iter(projects.values()))
+        loaded = projects[pid]
         self.assertTrue(loaded.verify())
 
 
