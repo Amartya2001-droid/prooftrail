@@ -19,7 +19,7 @@ echo
 TOKEN=$(curl -s -X POST "$BASE/api/sessions" \
   -H 'Content-Type: application/json' \
   -d '{"username":"designer","password":"demo-pw"}' | jq -r .token)
-echo "token: ${TOKEN:0:12}..."
+echo "token: $(printf '%s' "$TOKEN" | cut -c1-12)..."
 
 PROJECT=$(curl -s -X POST "$BASE/api/projects" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
@@ -27,13 +27,11 @@ PROJECT=$(curl -s -X POST "$BASE/api/projects" \
 echo "project: $PROJECT"
 
 upload() {
-  printf '%s' "$1" | base64 -w0 | {
-    read B64
-    curl -s -X POST "$BASE/api/projects/$PROJECT/uploads" \
-      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-      -d "{\"content_base64\":\"$B64\",\"label\":\"$2\"}"
-    echo
-  }
+  B64=$(printf '%s' "$1" | base64 -w0)
+  curl -s -X POST "$BASE/api/projects/$PROJECT/uploads" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"content_base64\":\"$B64\",\"label\":\"$2\"}"
+  echo
 }
 upload "Northwind Studio crafts bold brand identities." "v1"
 upload "Northwind Studio crafts bold brand identities. We offer logo design." "v2"
