@@ -19,11 +19,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import time
 from dataclasses import dataclass, field
 
 from .crypto import public_key_from_secret
 
 _ITERATIONS = 200_000
+SESSION_TTL_SECONDS = 24 * 3600
 
 
 def _pbkdf2(password: str, salt: bytes) -> bytes:
@@ -88,20 +90,40 @@ def authenticate(user: UserRecord, password: str) -> bytes | None:
 
 
 class SessionStore:
-    """In-memory token -> actor_id sessions."""
+    """In-memory token -> actor_id sessions with expiry.
 
-    def __init__(self) -> None:
-        self._sessions: dict[str, str] = {}
+    Tokens expire after ``ttl_seconds`` (default 24h). ``time_fn`` exists
+    so tests can control the clock; production uses ``time.time``.
+    """
+
+    def __init__(self, ttl_seconds: int = SESSION_TTL_SECONDS,
+                 time_fn=time.time) -> None:
+        self._ttl = ttl_seconds
+        self._now = time_fn
+        self._sessions: dict[str, tuple[str, float]] = {}
 
     def create(self, actor_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        self._sessions[token] = actor_id
+        self._sessions[token] = (actor_id, self._now() + self._ttl)
         return token
 
     def lookup(self, token: str | None) -> str | None:
         if not token:
             return None
-        return self._sessions.get(token)
+        entry = self._sessions.get(token)
+        if entry is None:
+            return None
+        actor_id, expires_at = entry
+        if self._now() >= expires_at:
+            self._sessions.pop(token, None)
+            return None
+        return actor_id
 
     def revoke(self, token: str) -> None:
         self._sessions.pop(token, None)
+
+    def prune(self) -> None:
+        now = self._now()
+        expired = [t for t, (_, exp) in self._sessions.items() if now >= exp]
+        for token in expired:
+            self._sessions.pop(token, None)

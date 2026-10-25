@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from .auth import UserRecord
@@ -62,11 +64,30 @@ def project_from_dict(data: dict) -> Project:
 
 
 def save_state(path: str | Path, users: dict, projects: dict) -> None:
+    """Save atomically, with owner-only permissions.
+
+    The file holds password verifiers (PBKDF2 hashes, not passwords),
+    so it must not be world-readable — and a crash mid-write must not
+    leave a half-written state file behind. Write to a temp file in the
+    same directory, restrict it, then rename over the destination.
+    """
     state = {
         "users": {name: user.to_dict() for name, user in users.items()},
         "projects": {pid: project_to_dict(p) for pid, p in projects.items()},
     }
-    Path(path).write_text(json.dumps(state, indent=2, sort_keys=True))
+    target = Path(path)
+    fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp-state-")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(state, indent=2, sort_keys=True))
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def load_state(path: str | Path) -> tuple[dict, dict]:
@@ -74,7 +95,10 @@ def load_state(path: str | Path) -> tuple[dict, dict]:
     file = Path(path)
     if not file.exists():
         return {}, {}
-    state = json.loads(file.read_text())
+    try:
+        state = json.loads(file.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"state file is corrupt: {exc}") from exc
     users = {name: UserRecord.from_dict(rec)
              for name, rec in state.get("users", {}).items()}
     projects = {pid: project_from_dict(p)

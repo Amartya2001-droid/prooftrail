@@ -79,6 +79,10 @@ def _decodeint(s: bytes) -> int:
 
 def _decodepoint(s: bytes) -> tuple[int, int]:
     y = sum(2 ** i * _bit(s, i) for i in range(255))
+    if y >= _Q:
+        # Non-canonical encoding: reject rather than verify against a
+        # point the signer never produced.
+        raise ValueError("non-canonical point encoding")
     x = _xrecover(y)
     if x & 1 != _bit(s, 255):
         x = _Q - x

@@ -4,6 +4,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 
 - POST /api/users                     {username, name, password}
 - POST /api/sessions                  {username, password} -> {token}
+- POST /api/sessions/revoke           (Bearer token; logs out)
 - POST /api/projects                  {title} -> {project_id}
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
@@ -22,6 +23,9 @@ import base64
 import binascii
 import json
 import secrets
+import sys
+import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -34,6 +38,16 @@ from .verification import verification_page
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Maximum request body: 10 MiB. Anything larger is rejected before it is
+# read, so a huge upload cannot exhaust server memory.
+MAX_BODY_BYTES = 10 * 1024 * 1024
+# Login brute-force defence: 5 failures in 10 minutes locks the username
+# for 15 minutes (correct password included — that is the point).
+LOGIN_FAIL_WINDOW_SECONDS = 600
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 900
 
 
 class ApiError(Exception):
@@ -51,6 +65,12 @@ class ProofTrailApp:
         self.users, self.projects = load_state(data_path) if data_path else ({}, {})
         self.sessions = SessionStore()
         self._secrets: dict[str, bytes] = {}
+        # One lock serialises all mutations (and the saves that follow
+        # them) so concurrent threads cannot interleave a register,
+        # upload or save into a corrupt state.
+        self._lock = threading.RLock()
+        self._failed_logins: dict[str, list[float]] = {}
+        self._lockouts: dict[str, float] = {}
 
     def _save(self) -> None:
         if self.data_path:
@@ -73,102 +93,141 @@ class ProofTrailApp:
 
     # -- users ---------------------------------------------------------------
     def register(self, username: str, name: str, password: str) -> dict:
-        if username in self.users:
-            raise ApiError(409, "username already exists")
-        self.users[username] = create_user(username, name, password)
-        self._save()
-        return {"actor_id": username}
+        with self._lock:
+            if username in self.users:
+                raise ApiError(409, "username already exists")
+            if len(password) < 8:
+                raise ApiError(400, "password must be at least 8 characters")
+            self.users[username] = create_user(username, name, password)
+            self._save()
+            return {"actor_id": username}
+
+    def _record_failed_login(self, username: str, now: float) -> None:
+        attempts = [t for t in self._failed_logins.get(username, [])
+                    if now - t < LOGIN_FAIL_WINDOW_SECONDS]
+        attempts.append(now)
+        self._failed_logins[username] = attempts
+        if len(attempts) >= LOGIN_MAX_FAILURES:
+            self._lockouts[username] = now + LOGIN_LOCKOUT_SECONDS
 
     def login(self, username: str, password: str) -> dict:
-        user = self.users.get(username)
-        if user is None:
-            raise ApiError(401, "invalid credentials")
-        secret = authenticate(user, password)
-        if secret is None:
-            raise ApiError(401, "invalid credentials")
-        token = self.sessions.create(username)
-        self._secrets[token] = secret
-        return {"token": token, "actor_id": username}
+        with self._lock:
+            now = time.time()
+            if now < self._lockouts.get(username, 0):
+                raise ApiError(429, "account locked after failed logins")
+            user = self.users.get(username)
+            # Same response for unknown users and wrong passwords, so a
+            # login oracle cannot enumerate accounts.
+            secret = authenticate(user, password) if user else None
+            if secret is None:
+                self._record_failed_login(username, now)
+                raise ApiError(401, "invalid credentials")
+            self._failed_logins.pop(username, None)
+            self._lockouts.pop(username, None)
+            self.sessions.prune()
+            token = self.sessions.create(username)
+            self._secrets[token] = secret
+            return {"token": token, "actor_id": username}
+
+    def logout(self, token: str | None) -> dict:
+        with self._lock:
+            if token:
+                self.sessions.revoke(token)
+                self._secrets.pop(token, None)
+            return {"revoked": True}
 
     # -- projects ------------------------------------------------------------
     def create_project(self, token: str | None, title: str) -> dict:
-        actor = self._actor_for_token(token)
-        project_id = "proj-" + secrets.token_hex(6)
-        from .store import Project
+        with self._lock:
+            actor = self._actor_for_token(token)
+            # 128-bit random id: unguessable, and the collaborator check
+            # below is the real authorisation in any case.
+            project_id = "proj-" + secrets.token_hex(16)
+            from .store import Project
 
-        project = Project(project_id, title)
-        project.add_collaborator(actor)
-        self.projects[project_id] = project
-        self._save()
-        return {"project_id": project_id}
+            project = Project(project_id, title)
+            project.add_collaborator(actor)
+            self.projects[project_id] = project
+            self._save()
+            return {"project_id": project_id}
 
     def add_collaborator(self, token: str | None, project_id: str,
                          username: str) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        user = self.users.get(username)
-        if user is None:
-            raise ApiError(404, "user not found")
-        project.add_collaborator(
-            Actor(username, user.name, b"", user.public_key))
-        self._save()
-        return {"project_id": project_id, "collaborator": username}
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            user = self.users.get(username)
+            if user is None:
+                raise ApiError(404, "user not found")
+            project.add_collaborator(
+                Actor(username, user.name, b"", user.public_key))
+            self._save()
+            return {"project_id": project_id, "collaborator": username}
 
     def upload(self, token: str | None, project_id: str, content_b64: str,
-               label: str = "", timestamp: str | None = None) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        try:
-            data = base64.b64decode(content_b64, validate=True)
-        except binascii.Error:
-            raise ApiError(400, "content_base64 is not valid base64")
-        version = project.upload(actor, data, timestamp or _now(), label)
-        self._save()
-        return {
-            "content_id": version.content_id,
-            "parent_content_id": version.parent_content_id,
-            "label": version.label,
-            "timestamp": version.timestamp,
-        }
+               label: str = "") -> dict:
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            try:
+                data = base64.b64decode(content_b64, validate=True)
+            except binascii.Error:
+                raise ApiError(400, "content_base64 is not valid base64")
+            # Timestamps are always server-assigned. A provenance ledger
+            # must never trust the uploader's clock.
+            version = project.upload(actor, data, _now(), label)
+            self._save()
+            return {
+                "content_id": version.content_id,
+                "parent_content_id": version.parent_content_id,
+                "label": version.label,
+                "timestamp": version.timestamp,
+            }
 
-    def approve(self, token: str | None, project_id: str, content_id: str,
-                timestamp: str | None = None) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        version = next((v for v in project.versions
-                        if v.content_id == content_id), None)
-        if version is None:
-            raise ApiError(404, "version not found")
-        project.approve(actor, version, timestamp or _now())
-        self._save()
-        return {"approved": content_id}
+    def approve(self, token: str | None, project_id: str,
+                content_id: str) -> dict:
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            version = next((v for v in project.versions
+                            if v.content_id == content_id), None)
+            if version is None:
+                raise ApiError(404, "version not found")
+            project.approve(actor, version, _now())
+            self._save()
+            return {"approved": content_id}
 
     def versions(self, token: str | None, project_id: str) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        return {"versions": [
-            {"content_id": v.content_id, "parent_content_id": v.parent_content_id,
-             "actor_id": v.actor_id, "timestamp": v.timestamp, "label": v.label}
-            for v in project.versions
-        ]}
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            return {"versions": [
+                {"content_id": v.content_id,
+                 "parent_content_id": v.parent_content_id,
+                 "actor_id": v.actor_id, "timestamp": v.timestamp,
+                 "label": v.label}
+                for v in project.versions
+            ]}
 
     def version_content(self, token: str | None, project_id: str,
                         content_id: str) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        version = next((v for v in project.versions
-                        if v.content_id == content_id), None)
-        if version is None:
-            raise ApiError(404, "version not found")
-        return {"content_base64": base64.b64encode(
-            project.read(version)).decode()}
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            version = next((v for v in project.versions
+                            if v.content_id == content_id), None)
+            if version is None:
+                raise ApiError(404, "version not found")
+            return {"content_base64": base64.b64encode(
+                project.read(version)).decode()}
 
     def verify(self, token: str | None, project_id: str) -> dict:
-        actor = self._actor_for_token(token)
-        project = self._project_for(actor, project_id)
-        texts = [project.read(v).decode(errors="replace")
-                 for v in project.versions]
-        return verification_page(project, texts)
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            texts = [project.read(v).decode(errors="replace")
+                     for v in project.versions]
+            return verification_page(project, texts)
 
 
 def make_handler(app: ProofTrailApp):
@@ -183,13 +242,32 @@ def make_handler(app: ProofTrailApp):
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            if status == 413:
+                # The client may still be sending the oversized body;
+                # close so it is not parsed as a follow-up request.
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.end_headers()
             self.wfile.write(body)
 
         def _read_json(self) -> dict:
-            length = int(self.headers.get("Content-Length") or 0)
+            raw_length = self.headers.get("Content-Length") or "0"
+            try:
+                length = int(raw_length)
+            except ValueError:
+                raise ApiError(400, "invalid Content-Length")
+            if length < 0:
+                raise ApiError(400, "invalid Content-Length")
+            if length > MAX_BODY_BYTES:
+                # Rejected on headers alone, before the body is read.
+                raise ApiError(413, "request body too large")
             if not length:
                 return {}
+            content_type = self.headers.get("Content-Type") or ""
+            if not content_type.startswith("application/json"):
+                raise ApiError(415, "Content-Type must be application/json")
             try:
                 return json.loads(self.rfile.read(length))
             except json.JSONDecodeError:
@@ -209,6 +287,8 @@ def make_handler(app: ProofTrailApp):
                                          body["password"])
             if method == "POST" and parts == ["api", "sessions"]:
                 return 200, app.login(body["username"], body["password"])
+            if method == "POST" and parts == ["api", "sessions", "revoke"]:
+                return 200, app.logout(token)
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if (method == "POST" and len(parts) == 4
@@ -220,13 +300,11 @@ def make_handler(app: ProofTrailApp):
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "uploads"):
                 return 201, app.upload(token, parts[2], body["content_base64"],
-                                       body.get("label", ""),
-                                       body.get("timestamp"))
+                                       body.get("label", ""))
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "approvals"):
-                return 200, app.approve(token, parts[2], body["content_id"],
-                                        body.get("timestamp"))
+                return 200, app.approve(token, parts[2], body["content_id"])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "versions"):
@@ -253,8 +331,10 @@ def make_handler(app: ProofTrailApp):
                 self._send(exc.status, {"error": exc.message})
             except KeyError as exc:
                 self._send(400, {"error": f"missing field: {exc.args[0]}"})
-            except Exception as exc:  # never leak a stack trace as HTML
-                self._send(500, {"error": str(exc)})
+            except Exception as exc:
+                # Never leak internals to the client; log server-side.
+                print(f"internal error: {exc!r}", file=sys.stderr)
+                self._send(500, {"error": "internal error"})
 
         def do_GET(self):
             self._handle("GET")
