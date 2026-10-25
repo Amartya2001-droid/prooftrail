@@ -55,3 +55,30 @@ python3 -m unittest discover -s tests -v
 ```sh
 python3 demo/designer_scenario.py
 ```
+
+## Week 1: HTTP API (auth, projects, file upload, version history)
+
+```sh
+python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
+sh demo/api_demo.sh 8000   # needs curl and jq
+```
+
+Endpoints (JSON; project routes need `Authorization: Bearer <token>`):
+
+- `POST /api/users` — register `{username, name, password}`
+- `POST /api/sessions` — log in, receive a token
+- `POST /api/projects` — create a project
+- `POST /api/projects/<id>/collaborators` — add a collaborator
+- `POST /api/projects/<id>/uploads` — upload a version
+  (`{content_base64, label?, timestamp?}`); the server hashes the
+  content, links it to its parent, and signs a ledger event
+- `POST /api/projects/<id>/approvals` — approve a version
+- `GET /api/projects/<id>/versions` — version history
+- `GET /api/projects/<id>/versions/content?content_id=sha256:...`
+- `GET /api/projects/<id>/verify` — verification page data (hashes only)
+
+Auth design: an actor's Ed25519 signing key is derived from their
+password (PBKDF2, separate salts for login check and key). The server
+stores salts, a verifier and the public key — never a signing secret —
+so a stolen data file cannot forge ledger events. State persists to a
+JSON file; sessions live in memory only.
