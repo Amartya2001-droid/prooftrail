@@ -1,5 +1,7 @@
 # ProofTrail
 
+[![CI](https://github.com/Amartya2001-droid/prooftrail/actions/workflows/ci.yml/badge.svg)](https://github.com/Amartya2001-droid/prooftrail/actions/workflows/ci.yml)
+
 An AI-powered provenance and dispute engine for digital work.
 
 ProofTrail continuously verifies who created what, when, how it changed, and
