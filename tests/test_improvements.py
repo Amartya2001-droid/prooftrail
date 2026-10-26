@@ -156,5 +156,19 @@ class TestEventsEndpoint(ImprovementTestCase):
         self.assertEqual(status, 400)
 
 
+class TestHealthAndDocs(ImprovementTestCase):
+    def test_health_needs_no_auth(self):
+        status, body = call(self.conn, "GET", "/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "ok")
+        self.assertTrue(body["version"])
+
+    def test_openapi_lists_project_routes(self):
+        status, body = call(self.conn, "GET", "/api/openapi.json")
+        self.assertEqual(status, 200)
+        self.assertIn("/api/projects/{id}/events", body["paths"])
+        self.assertIn("/api/projects/{id}/verify", body["paths"])
+
+
 if __name__ == "__main__":
     unittest.main()

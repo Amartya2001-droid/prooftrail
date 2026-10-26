@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from . import __version__
 from .auth import SessionStore, authenticate, create_user
 from .crypto import content_id
 from .persistence import load_state, save_state
@@ -39,6 +40,40 @@ from .verification import verification_page
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+OPENAPI_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "ProofTrail API", "version": __version__},
+    "paths": {
+        "/api/health": {"get": {"summary": "Liveness check, no auth"}},
+        "/api/users": {"post": {"summary": "Register a user"}},
+        "/api/sessions": {"post": {"summary": "Log in, returns a token"}},
+        "/api/sessions/revoke": {
+            "post": {"summary": "Log out, requires Bearer token"}},
+        "/api/projects": {
+            "post": {"summary": "Create a project, requires Bearer token"},
+            "get": {"summary": "List my projects, requires Bearer token"}},
+        "/api/projects/{id}/collaborators": {
+            "post": {"summary": "Add a collaborator"}},
+        "/api/projects/{id}/uploads": {
+            "post": {"summary": "Upload a version (idempotent on identical bytes)"}},
+        "/api/projects/{id}/approvals": {
+            "post": {"summary": "Approve a version"}},
+        "/api/projects/{id}/versions": {
+            "get": {"summary": "List versions with metadata"}},
+        "/api/projects/{id}/versions/content": {
+            "get": {"summary": "Download one version's bytes"}},
+        "/api/projects/{id}/events": {
+            "get": {"summary": "Ledger events, newest first, paged"}},
+        "/api/projects/{id}/verify": {
+            "get": {"summary": "Verification page: hashes, no text"}},
+    },
+}
+
+
+def _health() -> dict:
+    return {"status": "ok", "version": __version__}
 
 
 # Maximum request body: 10 MiB. Anything larger is rejected before it is
@@ -334,6 +369,10 @@ def make_handler(app: ProofTrailApp):
         def _route(self, method: str, path: str, query: dict, body: dict):
             parts = [p for p in path.split("/") if p]
             token = self._token()
+            if method == "GET" and parts == ["api", "health"]:
+                return 200, _health()
+            if method == "GET" and parts == ["api", "openapi.json"]:
+                return 200, OPENAPI_SPEC
             if method == "POST" and parts == ["api", "users"]:
                 return 201, app.register(body["username"], body["name"],
                                          body["password"])
