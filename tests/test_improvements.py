@@ -130,5 +130,31 @@ class TestIdempotentUpload(ImprovementTestCase):
         self.assertEqual(verify["events"], 1)
 
 
+class TestEventsEndpoint(ImprovementTestCase):
+    def test_events_paginate_newest_first(self):
+        alice = self.user("alice-events")
+        pid = self.project(alice, "Events Project")
+        v1 = self.upload(alice, pid, "first", label="v1")
+        self.upload(alice, pid, "second", label="v2")
+        call(self.conn, "POST", f"/api/projects/{pid}/approvals",
+             {"content_id": v1["content_id"]}, token=alice)
+        status, page1 = call(self.conn, "GET",
+                             f"/api/projects/{pid}/events?limit=2",
+                             token=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(page1["total"], 3)
+        self.assertEqual(len(page1["events"]), 2)
+        self.assertEqual(page1["events"][0]["type"], "approval")
+        status, page2 = call(self.conn, "GET",
+                             f"/api/projects/{pid}/events?limit=2&offset=2",
+                             token=alice)
+        self.assertEqual(len(page2["events"]), 1)
+        self.assertEqual(page2["events"][0]["type"], "upload")
+        status, _ = call(self.conn, "GET",
+                         f"/api/projects/{pid}/events?limit=500",
+                         token=alice)
+        self.assertEqual(status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

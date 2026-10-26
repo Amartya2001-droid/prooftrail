@@ -259,6 +259,20 @@ class ProofTrailApp:
             return {"content_base64": base64.b64encode(
                 project.read(version)).decode()}
 
+    def events(self, token: str | None, project_id: str,
+               limit: int = 50, offset: int = 0) -> dict:
+        """The project's signed ledger events, newest first, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            events = list(reversed(project.ledger.events))
+            return {"events": events[offset:offset + limit],
+                    "total": len(events), "limit": limit, "offset": offset}
+
     def verify(self, token: str | None, project_id: str) -> dict:
         with self._lock:
             actor = self._actor_for_token(token)
@@ -357,6 +371,15 @@ def make_handler(app: ProofTrailApp):
                     and parts[3] == "versions" and parts[4] == "content"):
                 return 200, app.version_content(
                     token, parts[2], query.get("content_id", [""])[0])
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "events"):
+                try:
+                    limit = int(query.get("limit", ["50"])[0])
+                    offset = int(query.get("offset", ["0"])[0])
+                except ValueError:
+                    raise ApiError(400, "limit and offset must be integers")
+                return 200, app.events(token, parts[2], limit, offset)
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "verify"):
