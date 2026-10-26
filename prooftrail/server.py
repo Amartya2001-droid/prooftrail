@@ -151,6 +151,20 @@ class ProofTrailApp:
             self._save()
             return {"project_id": project_id}
 
+    def list_projects(self, token: str | None) -> dict:
+        """Projects the caller collaborates on, newest first."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            mine = [p for p in self.projects.values()
+                    if actor.actor_id in p.collaborators]
+            mine.sort(key=lambda p: p.project_id, reverse=True)
+            return {"projects": [
+                {"project_id": p.project_id, "title": p.title,
+                 "versions": len(p.versions),
+                 "collaborators": sorted(p.collaborators)}
+                for p in mine
+            ]}
+
     def add_collaborator(self, token: str | None, project_id: str,
                          username: str) -> dict:
         with self._lock:
@@ -291,6 +305,8 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
+            if method == "GET" and parts == ["api", "projects"]:
+                return 200, app.list_projects(token)
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "collaborators"):
