@@ -190,5 +190,22 @@ class TestExportEndpoint(ImprovementTestCase):
         self.assertEqual(status, 403)
 
 
+class TestValidation(ImprovementTestCase):
+    def test_bad_username_and_title_and_filename_rejected(self):
+        status, _ = call(self.conn, "POST", "/api/users",
+                         {"username": "bad name!", "name": "Bad",
+                          "password": "password123"})
+        self.assertEqual(status, 400)
+        alice = self.user("alice-valid")
+        status, _ = call(self.conn, "POST", "/api/projects",
+                         {"title": "   "}, token=alice)
+        self.assertEqual(status, 400)
+        pid = self.project(alice, "Valid Project")
+        status, _ = call(self.conn, "POST", f"/api/projects/{pid}/uploads",
+                         {"content_base64": "aGk=",
+                          "filename": "../escape.txt"}, token=alice)
+        self.assertEqual(status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

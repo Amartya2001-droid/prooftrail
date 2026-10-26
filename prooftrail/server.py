@@ -22,6 +22,7 @@ import argparse
 import base64
 import binascii
 import json
+import re
 import secrets
 import sys
 import threading
@@ -78,6 +79,33 @@ def _health() -> dict:
     return {"status": "ok", "version": __version__}
 
 
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+
+
+def _validate_username(username: str) -> None:
+    if not _USERNAME_RE.match(username or ""):
+        raise ApiError(
+            400,
+            "username must be 3-32 characters: letters, digits, _, - or .")
+
+
+def _validate_text(field: str, value: str, max_len: int,
+                   required: bool = False) -> None:
+    if value is None:
+        value = ""
+    if required and not value.strip():
+        raise ApiError(400, f"{field} must not be empty")
+    if len(value) > max_len:
+        raise ApiError(400, f"{field} must be at most {max_len} characters")
+
+
+def _validate_filename(filename: str) -> None:
+    if len(filename) > 255:
+        raise ApiError(400, "filename must be at most 255 characters")
+    if "/" in filename or "\\" in filename or filename in (".", ".."):
+        raise ApiError(400, "filename must be a plain file name")
+
+
 # Maximum request body: 10 MiB. Anything larger is rejected before it is
 # read, so a huge upload cannot exhaust server memory.
 MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -132,6 +160,8 @@ class ProofTrailApp:
     # -- users ---------------------------------------------------------------
     def register(self, username: str, name: str, password: str) -> dict:
         with self._lock:
+            _validate_username(username)
+            _validate_text("name", name, 100, required=True)
             if username in self.users:
                 raise ApiError(409, "username already exists")
             if len(password) < 8:
@@ -177,6 +207,7 @@ class ProofTrailApp:
     # -- projects ------------------------------------------------------------
     def create_project(self, token: str | None, title: str) -> dict:
         with self._lock:
+            _validate_text("title", title, 200, required=True)
             actor = self._actor_for_token(token)
             # 128-bit random id: unguessable, and the collaborator check
             # below is the real authorisation in any case.
@@ -220,6 +251,9 @@ class ProofTrailApp:
                label: str = "", filename: str = "",
                content_type: str = "application/octet-stream") -> dict:
         with self._lock:
+            _validate_text("label", label, 100)
+            _validate_filename(filename)
+            _validate_text("content_type", content_type, 100)
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
             try:

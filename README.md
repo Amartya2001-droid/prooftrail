@@ -65,19 +65,32 @@ python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
 sh demo/api_demo.sh 8000   # needs curl and jq
 ```
 
-Endpoints (JSON; project routes need `Authorization: Bearer <token>`):
+Endpoints (JSON; project routes need `Authorization: Bearer <token>`).
+Full machine-readable spec at `GET /api/openapi.json`; a thin Python
+client lives in `prooftrail/client.py`.
 
+- `GET /api/health` — liveness check, no auth
 - `POST /api/users` — register `{username, name, password}`
+  (username 3–32 chars: letters, digits, `_`, `-`, `.`; password ≥ 8)
 - `POST /api/sessions` — log in, receive a token
+- `POST /api/sessions/revoke` — log out
 - `POST /api/projects` — create a project
+- `GET /api/projects` — list the projects you collaborate on
 - `POST /api/projects/<id>/collaborators` — add a collaborator
 - `POST /api/projects/<id>/uploads` — upload a version
-  (`{content_base64, label?, timestamp?}`); the server hashes the
-  content, links it to its parent, and signs a ledger event
+  (`{content_base64, label?, filename?, content_type?}`); the server
+  hashes the content, links it to its parent, and signs a ledger
+  event. Re-uploading bytes identical to the latest version returns
+  that version with `"duplicate": true` and adds no ledger event.
+  Versions record filename, content type and byte size.
 - `POST /api/projects/<id>/approvals` — approve a version
-- `GET /api/projects/<id>/versions` — version history
+- `GET /api/projects/<id>/versions` — version history with metadata
 - `GET /api/projects/<id>/versions/content?content_id=sha256:...`
+- `GET /api/projects/<id>/events?limit=&offset=` — ledger events,
+  newest first, paged (limit 1–200)
 - `GET /api/projects/<id>/verify` — verification page data (hashes only)
+- `GET /api/projects/<id>/export?claim=` — signed dispute evidence
+  bundle, signed with the exporter's own key
 
 Auth design: an actor's Ed25519 signing key is derived from their
 password (PBKDF2, separate salts for login check and key). The server
