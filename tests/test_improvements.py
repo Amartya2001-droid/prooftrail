@@ -112,5 +112,23 @@ class TestVersionMetadata(ImprovementTestCase):
         self.assertEqual(body["versions"][0]["size"], len(text))
 
 
+class TestIdempotentUpload(ImprovementTestCase):
+    def test_same_bytes_twice_is_one_version(self):
+        alice = self.user("alice-dup")
+        pid = self.project(alice, "Dup Project")
+        first = self.upload(alice, pid, "same bytes", label="v1")
+        self.assertFalse(first["duplicate"])
+        second = self.upload(alice, pid, "same bytes", label="v1 again")
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(second["content_id"], first["content_id"])
+        status, body = call(self.conn, "GET",
+                            f"/api/projects/{pid}/versions", token=alice)
+        self.assertEqual(len(body["versions"]), 1)
+        status, verify = call(self.conn, "GET",
+                              f"/api/projects/{pid}/verify", token=alice)
+        self.assertEqual(len(verify["versions"]), 1)
+        self.assertEqual(verify["events"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

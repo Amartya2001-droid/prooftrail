@@ -31,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .auth import SessionStore, authenticate, create_user
+from .crypto import content_id
 from .persistence import load_state, save_state
 from .store import Actor
 from .verification import verification_page
@@ -190,6 +191,21 @@ class ProofTrailApp:
                 raise ApiError(400, "content_base64 is not valid base64")
             # Timestamps are always server-assigned. A provenance ledger
             # must never trust the uploader's clock.
+            # Idempotency: identical bytes to the latest version are the
+            # same version. Re-uploading them must not spam the ledger
+            # with a duplicate event.
+            latest = project.versions[-1] if project.versions else None
+            if latest is not None and latest.content_id == content_id(data):
+                return {
+                    "content_id": latest.content_id,
+                    "parent_content_id": latest.parent_content_id,
+                    "label": latest.label,
+                    "timestamp": latest.timestamp,
+                    "filename": latest.filename,
+                    "content_type": latest.content_type,
+                    "size": latest.size,
+                    "duplicate": True,
+                }
             version = project.upload(actor, data, _now(), label,
                                      filename=filename,
                                      content_type=content_type)
@@ -202,6 +218,7 @@ class ProofTrailApp:
                 "filename": version.filename,
                 "content_type": version.content_type,
                 "size": version.size,
+                "duplicate": False,
             }
 
     def approve(self, token: str | None, project_id: str,
