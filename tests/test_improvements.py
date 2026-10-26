@@ -95,5 +95,22 @@ class TestListProjects(ImprovementTestCase):
         self.assertEqual(body["projects"][0]["versions"], 0)
 
 
+class TestVersionMetadata(ImprovementTestCase):
+    def test_filename_type_and_size_round_trip(self):
+        alice = self.user("alice-meta")
+        pid = self.project(alice, "Meta Project")
+        text = "hello metadata"
+        version = self.upload(alice, pid, text, label="draft",
+                              filename="brief.txt", content_type="text/plain")
+        self.assertEqual(version["filename"], "brief.txt")
+        self.assertEqual(version["content_type"], "text/plain")
+        self.assertEqual(version["size"], len(text))
+        status, body = call(self.conn, "GET",
+                            f"/api/projects/{pid}/versions", token=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["versions"][0]["filename"], "brief.txt")
+        self.assertEqual(body["versions"][0]["size"], len(text))
+
+
 if __name__ == "__main__":
     unittest.main()

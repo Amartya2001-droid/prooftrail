@@ -179,7 +179,8 @@ class ProofTrailApp:
             return {"project_id": project_id, "collaborator": username}
 
     def upload(self, token: str | None, project_id: str, content_b64: str,
-               label: str = "") -> dict:
+               label: str = "", filename: str = "",
+               content_type: str = "application/octet-stream") -> dict:
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
@@ -189,13 +190,18 @@ class ProofTrailApp:
                 raise ApiError(400, "content_base64 is not valid base64")
             # Timestamps are always server-assigned. A provenance ledger
             # must never trust the uploader's clock.
-            version = project.upload(actor, data, _now(), label)
+            version = project.upload(actor, data, _now(), label,
+                                     filename=filename,
+                                     content_type=content_type)
             self._save()
             return {
                 "content_id": version.content_id,
                 "parent_content_id": version.parent_content_id,
                 "label": version.label,
                 "timestamp": version.timestamp,
+                "filename": version.filename,
+                "content_type": version.content_type,
+                "size": version.size,
             }
 
     def approve(self, token: str | None, project_id: str,
@@ -219,7 +225,8 @@ class ProofTrailApp:
                 {"content_id": v.content_id,
                  "parent_content_id": v.parent_content_id,
                  "actor_id": v.actor_id, "timestamp": v.timestamp,
-                 "label": v.label}
+                 "label": v.label, "filename": v.filename,
+                 "content_type": v.content_type, "size": v.size}
                 for v in project.versions
             ]}
 
@@ -316,7 +323,10 @@ def make_handler(app: ProofTrailApp):
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "uploads"):
                 return 201, app.upload(token, parts[2], body["content_base64"],
-                                       body.get("label", ""))
+                                       body.get("label", ""),
+                                       body.get("filename", ""),
+                                       body.get("content_type",
+                                                "application/octet-stream"))
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "approvals"):

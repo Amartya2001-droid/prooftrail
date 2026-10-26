@@ -35,6 +35,9 @@ def project_to_dict(project: Project) -> dict:
                 "actor_id": v.actor_id,
                 "timestamp": v.timestamp,
                 "label": v.label,
+                "filename": v.filename,
+                "content_type": v.content_type,
+                "size": v.size,
             }
             for v in project.versions
         ],

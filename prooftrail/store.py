@@ -35,6 +35,9 @@ class Version:
     actor_id: str
     timestamp: str
     label: str = ""
+    filename: str = ""
+    content_type: str = "application/octet-stream"
+    size: int = 0
 
 
 class Project:
@@ -58,6 +61,8 @@ class Project:
         data: bytes,
         timestamp: str,
         label: str = "",
+        filename: str = "",
+        content_type: str = "application/octet-stream",
     ) -> Version:
         """Store a new version and record it on the ledger."""
         if actor.actor_id not in self.collaborators:
@@ -65,13 +70,16 @@ class Project:
         cid = content_id(data)
         parent = self.versions[-1].content_id if self.versions else None
         self._blobs[cid] = data
-        version = Version(cid, parent, actor.actor_id, timestamp, label)
+        version = Version(cid, parent, actor.actor_id, timestamp, label,
+                          filename=filename, content_type=content_type,
+                          size=len(data))
         self.versions.append(version)
         event_type = "upload" if parent is None else "edit"
         self.ledger.append(
             event_type, actor.actor_id, actor.secret_key,
             content_id=cid, parent_content_id=parent, timestamp=timestamp,
-            payload={"label": label},
+            payload={"label": label, "filename": filename,
+                     "size": len(data)},
         )
         return version
 
