@@ -115,3 +115,9 @@ class ProofTrailClient:
 
     def verify(self, project_id: str) -> dict:
         return self._request("GET", f"/api/projects/{project_id}/verify")
+
+    def export(self, project_id: str, claim: str = "") -> dict:
+        from urllib.parse import quote
+        return self._request(
+            "GET",
+            f"/api/projects/{project_id}/export?claim={quote(claim)}")

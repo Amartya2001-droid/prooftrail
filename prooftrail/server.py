@@ -35,7 +35,7 @@ from .auth import SessionStore, authenticate, create_user
 from .crypto import content_id
 from .persistence import load_state, save_state
 from .store import Actor
-from .verification import verification_page
+from .verification import build_evidence_bundle, verification_page
 
 
 def _now() -> str:
@@ -68,6 +68,8 @@ OPENAPI_SPEC = {
             "get": {"summary": "Ledger events, newest first, paged"}},
         "/api/projects/{id}/verify": {
             "get": {"summary": "Verification page: hashes, no text"}},
+        "/api/projects/{id}/export": {
+            "get": {"summary": "Signed dispute evidence bundle"}},
     },
 }
 
@@ -308,6 +310,19 @@ class ProofTrailApp:
             return {"events": events[offset:offset + limit],
                     "total": len(events), "limit": limit, "offset": offset}
 
+    def export(self, token: str | None, project_id: str,
+               claim: str = "") -> dict:
+        """A signed evidence bundle for the whole project, downloadable
+        over the API. Signed with the caller's own key, so the bundle
+        is attributable to the person who exported it."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            texts = [project.read(v).decode(errors="replace")
+                     for v in project.versions]
+            return build_evidence_bundle(project, texts, actor.secret_key,
+                                         actor.public_key, claim)
+
     def verify(self, token: str | None, project_id: str) -> dict:
         with self._lock:
             actor = self._actor_for_token(token)
@@ -423,6 +438,11 @@ def make_handler(app: ProofTrailApp):
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "verify"):
                 return 200, app.verify(token, parts[2])
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "export"):
+                return 200, app.export(
+                    token, parts[2], query.get("claim", [""])[0])
             raise ApiError(404, "route not found")
 
         def _handle(self, method: str) -> None:

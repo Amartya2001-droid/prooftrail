@@ -170,5 +170,25 @@ class TestHealthAndDocs(ImprovementTestCase):
         self.assertIn("/api/projects/{id}/verify", body["paths"])
 
 
+class TestExportEndpoint(ImprovementTestCase):
+    def test_export_bundle_verifies(self):
+        from prooftrail.verification import verify_evidence_bundle
+        alice = self.user("alice-export")
+        pid = self.project(alice, "Export Project")
+        self.upload(alice, pid, "export me", label="v1")
+        status, bundle = call(
+            self.conn, "GET",
+            f"/api/projects/{pid}/export?claim=authorship%20dispute",
+            token=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(bundle["claim"], "authorship dispute")
+        self.assertEqual(verify_evidence_bundle(bundle), [])
+        # A stranger must not be able to export someone else's project.
+        bob = self.user("bob-export")
+        status, _ = call(self.conn, "GET", f"/api/projects/{pid}/export",
+                         token=bob)
+        self.assertEqual(status, 403)
+
+
 if __name__ == "__main__":
     unittest.main()
