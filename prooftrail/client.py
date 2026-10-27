@@ -112,6 +112,14 @@ class ProofTrailClient:
         return self._request(
             "GET", f"/api/projects/{project_id}/contributions")
 
+    def diff(self, project_id: str, from_id: str | None = None,
+             to_id: str | None = None) -> dict:
+        from urllib.parse import urlencode
+        params = {k: v for k, v in
+                  (("from", from_id), ("to", to_id)) if v is not None}
+        query = f"?{urlencode(params)}" if params else ""
+        return self._request("GET", f"/api/projects/{project_id}/diff{query}")
+
     def versions(self, project_id: str) -> dict:
         return self._request("GET", f"/api/projects/{project_id}/versions")
 

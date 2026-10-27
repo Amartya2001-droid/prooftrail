@@ -12,6 +12,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/projects/<id>/declarations {content_id, tool, prompt_summary?, sentence_indices?}
 - GET  /api/projects/<id>/declarations
 - GET  /api/projects/<id>/contributions (Human Contribution Map)
+- GET  /api/projects/<id>/diff?from=...&to=... (semantic sentence diff)
 - GET  /api/projects/<id>/versions
 - GET  /api/projects/<id>/versions/content?content_id=sha256:...
 - GET  /api/projects/<id>/verify      (verification page: hashes, no text)
@@ -38,6 +39,7 @@ from . import __version__
 from .auth import SessionStore, authenticate, create_user
 from .contributions import build_map
 from .crypto import content_id
+from .diffing import diff_texts
 from .persistence import load_state, save_state
 from .store import Actor
 from .verification import build_evidence_bundle, verification_page
@@ -70,6 +72,8 @@ OPENAPI_SPEC = {
             "get": {"summary": "List AI-use declarations"}},
         "/api/projects/{id}/contributions": {
             "get": {"summary": "Human Contribution Map: per-sentence sources"}},
+        "/api/projects/{id}/diff": {
+            "get": {"summary": "Semantic diff between two versions"}},
         "/api/projects/{id}/versions": {
             "get": {"summary": "List versions with metadata"}},
         "/api/projects/{id}/versions/content": {
@@ -369,6 +373,54 @@ class ProofTrailApp:
             [(v.label, t) for v, t in zip(project.versions, texts)],
             project.declarations())
 
+    def diff(self, token: str | None, project_id: str,
+             from_id: str | None = None,
+             to_id: str | None = None) -> dict:
+        """Semantic sentence diff between two versions.
+
+        Defaults, when ids are omitted, are the latest version and its
+        parent — the change a reader most often wants to see.
+        """
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            by_id = {v.content_id: v for v in project.versions}
+            if to_id is None:
+                if not project.versions:
+                    raise ApiError(404, "project has no versions")
+                to_version = project.versions[-1]
+            else:
+                to_version = by_id.get(to_id)
+                if to_version is None:
+                    raise ApiError(404, "to version not found")
+            if from_id is None:
+                if to_version.parent_content_id is None:
+                    raise ApiError(
+                        400, "first version has nothing to diff against")
+                from_version = by_id[to_version.parent_content_id]
+            else:
+                from_version = by_id.get(from_id)
+                if from_version is None:
+                    raise ApiError(404, "from version not found")
+            old = project.read(from_version).decode(errors="replace")
+            new = project.read(to_version).decode(errors="replace")
+            result = diff_texts(old, new)
+            return {
+                "from_content_id": from_version.content_id,
+                "from_label": from_version.label,
+                "to_content_id": to_version.content_id,
+                "to_label": to_version.label,
+                "summary": result.summary(),
+                "intent": result.intent,
+                "added": result.added,
+                "removed": result.removed,
+                "unchanged": result.unchanged,
+                "old_sentence_count": result.old_count,
+                "new_sentence_count": result.new_count,
+                "new_sentence_pct": result.new_sentence_pct,
+                "removed_sentence_pct": result.removed_sentence_pct,
+            }
+
     def versions(self, token: str | None, project_id: str) -> dict:
         with self._lock:
             actor = self._actor_for_token(token)
@@ -531,6 +583,13 @@ def make_handler(app: ProofTrailApp):
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "contributions"):
                 return 200, app.contributions(token, parts[2])
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "diff"):
+                return 200, app.diff(
+                    token, parts[2],
+                    query.get("from", [None])[0],
+                    query.get("to", [None])[0])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "versions"):
