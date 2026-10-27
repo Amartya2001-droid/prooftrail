@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .contributions import Declaration, split_sentences
 from .crypto import content_id, generate_keypair
 from .ledger import Ledger
 
@@ -91,6 +92,57 @@ class Project:
             "approval", actor.actor_id, actor.secret_key,
             content_id=version.content_id, timestamp=timestamp,
         )
+
+    def declare(self, actor: Actor, version: Version, tool: str,
+                prompt_summary: str = "",
+                sentence_indices: list[int] | None = None,
+                timestamp: str = "") -> dict:
+        """Record a voluntary AI-use declaration for a version.
+
+        Declarations live on the signed ledger, not in a side table, so
+        they are tamper-evident like every other project event: editing
+        or dropping one breaks the chain. ``sentence_indices`` names the
+        sentences of the new version the declaration covers; empty means
+        all sentences added in this version.
+        """
+        if actor.actor_id not in self.collaborators:
+            raise ValueError(f"{actor.actor_id} is not a collaborator")
+        if version.content_id not in {v.content_id for v in self.versions}:
+            raise ValueError("version does not belong to this project")
+        if not tool.strip() or len(tool) > 100:
+            raise ValueError("tool must be 1-100 characters")
+        if len(prompt_summary) > 500:
+            raise ValueError("prompt_summary must be at most 500 characters")
+        indices = list(sentence_indices or [])
+        if any(not isinstance(i, int) or isinstance(i, bool) for i in indices):
+            raise ValueError("sentence_indices must be integers")
+        text = self.read(version).decode(errors="replace")
+        sentence_count = len(split_sentences(text))
+        if any(i < 0 or i >= sentence_count for i in indices):
+            raise ValueError("sentence_indices out of range for this version")
+        return self.ledger.append(
+            "declaration", actor.actor_id, actor.secret_key,
+            content_id=version.content_id, timestamp=timestamp,
+            payload={"label": version.label, "tool": tool,
+                     "prompt_summary": prompt_summary,
+                     "sentence_indices": indices},
+        )
+
+    def declarations(self) -> list[Declaration]:
+        """Declarations reconstructed from the ledger, in order."""
+        found = []
+        for event in self.ledger.events:
+            if event["type"] != "declaration":
+                continue
+            payload = event.get("payload", {})
+            found.append(Declaration(
+                version_label=payload.get("label", ""),
+                actor_id=event["actor"],
+                tool=payload.get("tool", ""),
+                prompt_summary=payload.get("prompt_summary", ""),
+                sentence_indices=list(payload.get("sentence_indices", [])),
+            ))
+        return found
 
     def read(self, version: Version) -> bytes:
         return self._blobs[version.content_id]
