@@ -96,6 +96,22 @@ class ProofTrailClient:
         return self._request("POST", f"/api/projects/{project_id}/approvals",
                              {"content_id": content_id})
 
+    def declare(self, project_id: str, content_id: str, tool: str,
+                prompt_summary: str = "",
+                sentence_indices: list | None = None) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/declarations",
+            {"content_id": content_id, "tool": tool,
+             "prompt_summary": prompt_summary,
+             "sentence_indices": sentence_indices or []})
+
+    def declarations(self, project_id: str) -> dict:
+        return self._request("GET", f"/api/projects/{project_id}/declarations")
+
+    def contributions(self, project_id: str) -> dict:
+        return self._request(
+            "GET", f"/api/projects/{project_id}/contributions")
+
     def versions(self, project_id: str) -> dict:
         return self._request("GET", f"/api/projects/{project_id}/versions")
 

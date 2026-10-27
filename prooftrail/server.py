@@ -9,6 +9,9 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
 - POST /api/projects/<id>/approvals   {content_id, timestamp?}
+- POST /api/projects/<id>/declarations {content_id, tool, prompt_summary?, sentence_indices?}
+- GET  /api/projects/<id>/declarations
+- GET  /api/projects/<id>/contributions (Human Contribution Map)
 - GET  /api/projects/<id>/versions
 - GET  /api/projects/<id>/versions/content?content_id=sha256:...
 - GET  /api/projects/<id>/verify      (verification page: hashes, no text)
@@ -33,6 +36,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 from .auth import SessionStore, authenticate, create_user
+from .contributions import build_map
 from .crypto import content_id
 from .persistence import load_state, save_state
 from .store import Actor
@@ -61,6 +65,11 @@ OPENAPI_SPEC = {
             "post": {"summary": "Upload a version (idempotent on identical bytes)"}},
         "/api/projects/{id}/approvals": {
             "post": {"summary": "Approve a version"}},
+        "/api/projects/{id}/declarations": {
+            "post": {"summary": "Declare AI use for a version"},
+            "get": {"summary": "List AI-use declarations"}},
+        "/api/projects/{id}/contributions": {
+            "get": {"summary": "Human Contribution Map: per-sentence sources"}},
         "/api/projects/{id}/versions": {
             "get": {"summary": "List versions with metadata"}},
         "/api/projects/{id}/versions/content": {
@@ -305,6 +314,61 @@ class ProofTrailApp:
             self._save()
             return {"approved": content_id}
 
+    def declare(self, token: str | None, project_id: str, content_id: str,
+                tool: str, prompt_summary: str = "",
+                sentence_indices: list | None = None) -> dict:
+        with self._lock:
+            _validate_text("tool", tool, 100, required=True)
+            _validate_text("prompt_summary", prompt_summary, 500)
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            version = next((v for v in project.versions
+                            if v.content_id == content_id), None)
+            if version is None:
+                raise ApiError(404, "version not found")
+            try:
+                project.declare(actor, version, tool, prompt_summary,
+                                sentence_indices or [], _now())
+            except ValueError as exc:
+                raise ApiError(400, str(exc)) from exc
+            self._save()
+            return {"declared": content_id, "tool": tool}
+
+    def declarations(self, token: str | None, project_id: str) -> dict:
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            return {"declarations": [
+                {"version_label": d.version_label, "actor_id": d.actor_id,
+                 "tool": d.tool, "prompt_summary": d.prompt_summary,
+                 "sentence_indices": d.sentence_indices}
+                for d in project.declarations()
+            ]}
+
+    def contributions(self, token: str | None, project_id: str) -> dict:
+        """Human Contribution Map: every sentence, its source, and the
+        share of each source across the project."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            cmap = self._contribution_map(project)
+            return {
+                "segments": [
+                    {"text": s.text, "source": s.source,
+                     "first_seen_version": s.first_seen_version}
+                    for s in cmap.segments
+                ],
+                "coverage_pct": cmap.coverage(),
+                "caveat": cmap.caveat,
+            }
+
+    def _contribution_map(self, project):
+        texts = [project.read(v).decode(errors="replace")
+                 for v in project.versions]
+        return build_map(
+            [(v.label, t) for v, t in zip(project.versions, texts)],
+            project.declarations())
+
     def versions(self, token: str | None, project_id: str) -> dict:
         with self._lock:
             actor = self._actor_for_token(token)
@@ -363,7 +427,9 @@ class ProofTrailApp:
             project = self._project_for(actor, project_id)
             texts = [project.read(v).decode(errors="replace")
                      for v in project.versions]
-            return verification_page(project, texts)
+            return verification_page(
+                project, texts,
+                self._contribution_map(project).coverage())
 
 
 def make_handler(app: ProofTrailApp):
@@ -450,6 +516,21 @@ def make_handler(app: ProofTrailApp):
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "approvals"):
                 return 200, app.approve(token, parts[2], body["content_id"])
+            if (method == "POST" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "declarations"):
+                return 201, app.declare(
+                    token, parts[2], body["content_id"], body["tool"],
+                    body.get("prompt_summary", ""),
+                    body.get("sentence_indices", []))
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "declarations"):
+                return 200, app.declarations(token, parts[2])
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "contributions"):
+                return 200, app.contributions(token, parts[2])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "versions"):
