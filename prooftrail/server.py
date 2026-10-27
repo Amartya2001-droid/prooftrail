@@ -141,6 +141,11 @@ MAX_BODY_BYTES = 10 * 1024 * 1024
 LOGIN_FAIL_WINDOW_SECONDS = 600
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCKOUT_SECONDS = 900
+# Registration abuse defence: an open deployment must not accumulate
+# junk accounts from one address. 30 per hour per client IP is far above
+# any legitimate signup burst and far below bot volume.
+REGISTER_WINDOW_SECONDS = 3600
+REGISTER_MAX_PER_IP = 30
 
 
 class ApiError(Exception):
@@ -164,6 +169,7 @@ class ProofTrailApp:
         self._lock = threading.RLock()
         self._failed_logins: dict[str, list[float]] = {}
         self._lockouts: dict[str, float] = {}
+        self._registrations: dict[str, list[float]] = {}
 
     def _save(self) -> None:
         if self.data_path:
@@ -185,8 +191,18 @@ class ProofTrailApp:
         return project
 
     # -- users ---------------------------------------------------------------
-    def register(self, username: str, name: str, password: str) -> dict:
+    def register(self, username: str, name: str, password: str,
+                 remote_addr: str | None = None) -> dict:
         with self._lock:
+            if remote_addr is not None:
+                now = time.time()
+                attempts = [t for t in self._registrations.get(remote_addr, [])
+                            if now - t < REGISTER_WINDOW_SECONDS]
+                if len(attempts) >= REGISTER_MAX_PER_IP:
+                    raise ApiError(
+                        429, "too many registrations from this address")
+                attempts.append(now)
+                self._registrations[remote_addr] = attempts
             _validate_username(username)
             _validate_text("name", name, 100, required=True)
             if username in self.users:
@@ -560,7 +576,8 @@ def make_handler(app: ProofTrailApp):
                 return auth[7:]
             return None
 
-        def _route(self, method: str, path: str, query: dict, body: dict):
+        def _route(self, method: str, path: str, query: dict, body: dict,
+                   remote_addr: str | None = None):
             parts = [p for p in path.split("/") if p]
             token = self._token()
             if method == "GET" and parts == ["api", "health"]:
@@ -569,7 +586,7 @@ def make_handler(app: ProofTrailApp):
                 return 200, OPENAPI_SPEC
             if method == "POST" and parts == ["api", "users"]:
                 return 201, app.register(body["username"], body["name"],
-                                         body["password"])
+                                         body["password"], remote_addr)
             if method == "POST" and parts == ["api", "sessions"]:
                 return 200, app.login(body["username"], body["password"])
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
@@ -648,7 +665,8 @@ def make_handler(app: ProofTrailApp):
                 parsed = urlparse(self.path)
                 body = self._read_json() if method == "POST" else {}
                 status, payload = self._route(
-                    method, parsed.path, parse_qs(parsed.query), body)
+                    method, parsed.path, parse_qs(parsed.query), body,
+                    self.client_address[0])
                 self._send(status, payload)
             except ApiError as exc:
                 self._send(exc.status, {"error": exc.message})

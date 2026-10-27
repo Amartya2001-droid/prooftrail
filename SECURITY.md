@@ -18,6 +18,9 @@ how, and what is deliberately *not* covered.
 - **Brute force.** After 5 failed logins in 10 minutes, the username is
   locked for 15 minutes. Login failures return the same message for
   unknown users and wrong passwords, so accounts cannot be enumerated.
+- **Registration abuse.** Registrations are capped at 30 per hour per
+  client address (429 beyond that), so an open deployment cannot be
+  flooded with junk accounts from one address.
 - **Session theft window.** Tokens are 256-bit random values, expire
   after 24 hours, live in memory only, and can be revoked via
   `POST /api/sessions/revoke`.
@@ -40,8 +43,6 @@ how, and what is deliberately *not* covered.
 - **Transport security.** The server binds `127.0.0.1` by default and
   speaks plain HTTP. In production it must sit behind a TLS reverse
   proxy — tokens and passwords cross the wire otherwise.
-- **Registration rate limiting.** Login is rate-limited; registration
-  is not, so an open deployment could accumulate junk accounts.
 - **Key recovery.** Losing a password loses the signing key by design.
   There is no backdoor and no recovery flow yet (a week-3 concern).
 - **Multi-server sessions.** Sessions live in one process's memory; a
