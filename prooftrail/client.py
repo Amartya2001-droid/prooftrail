@@ -75,8 +75,9 @@ class ProofTrailClient:
     def create_project(self, title: str) -> dict:
         return self._request("POST", "/api/projects", {"title": title})
 
-    def list_projects(self) -> dict:
-        return self._request("GET", "/api/projects")
+    def list_projects(self, limit: int = 50, offset: int = 0) -> dict:
+        return self._request(
+            "GET", f"/api/projects?limit={limit}&offset={offset}")
 
     def add_collaborator(self, project_id: str, username: str) -> dict:
         return self._request(
@@ -120,8 +121,12 @@ class ProofTrailClient:
         query = f"?{urlencode(params)}" if params else ""
         return self._request("GET", f"/api/projects/{project_id}/diff{query}")
 
-    def versions(self, project_id: str) -> dict:
-        return self._request("GET", f"/api/projects/{project_id}/versions")
+    def versions(self, project_id: str, limit: int = 50,
+                 offset: int = 0) -> dict:
+        return self._request(
+            "GET",
+            f"/api/projects/{project_id}/versions"
+            f"?limit={limit}&offset={offset}")
 
     def version_content(self, project_id: str, content_id: str) -> bytes:
         body = self._request(

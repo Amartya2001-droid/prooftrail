@@ -119,6 +119,20 @@ def _validate_filename(filename: str) -> None:
         raise ApiError(400, "filename must be a plain file name")
 
 
+def _parse_paging(query: dict) -> tuple[int, int]:
+    """Shared limit/offset parsing: limit 1-200, offset >= 0."""
+    try:
+        limit = int(query.get("limit", ["50"])[0])
+        offset = int(query.get("offset", ["0"])[0])
+    except ValueError:
+        raise ApiError(400, "limit and offset must be integers") from None
+    if not 1 <= limit <= 200:
+        raise ApiError(400, "limit must be between 1 and 200")
+    if offset < 0:
+        raise ApiError(400, "offset must not be negative")
+    return limit, offset
+
+
 # Maximum request body: 10 MiB. Anything larger is rejected before it is
 # read, so a huge upload cannot exhaust server memory.
 MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -233,19 +247,25 @@ class ProofTrailApp:
             self._save()
             return {"project_id": project_id}
 
-    def list_projects(self, token: str | None) -> dict:
-        """Projects the caller collaborates on, newest first."""
+    def list_projects(self, token: str | None,
+                      limit: int = 50, offset: int = 0) -> dict:
+        """Projects the caller collaborates on, newest first, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
             mine = [p for p in self.projects.values()
                     if actor.actor_id in p.collaborators]
             mine.sort(key=lambda p: p.project_id, reverse=True)
+            page = mine[offset:offset + limit]
             return {"projects": [
                 {"project_id": p.project_id, "title": p.title,
                  "versions": len(p.versions),
                  "collaborators": sorted(p.collaborators)}
-                for p in mine
-            ]}
+                for p in page
+            ], "total": len(mine), "limit": limit, "offset": offset}
 
     def add_collaborator(self, token: str | None, project_id: str,
                          username: str) -> dict:
@@ -421,18 +441,25 @@ class ProofTrailApp:
                 "removed_sentence_pct": result.removed_sentence_pct,
             }
 
-    def versions(self, token: str | None, project_id: str) -> dict:
+    def versions(self, token: str | None, project_id: str,
+                 limit: int = 50, offset: int = 0) -> dict:
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
+            page = project.versions[offset:offset + limit]
             return {"versions": [
                 {"content_id": v.content_id,
                  "parent_content_id": v.parent_content_id,
                  "actor_id": v.actor_id, "timestamp": v.timestamp,
                  "label": v.label, "filename": v.filename,
                  "content_type": v.content_type, "size": v.size}
-                for v in project.versions
-            ]}
+                for v in page
+            ], "total": len(project.versions), "limit": limit,
+                "offset": offset}
 
     def version_content(self, token: str | None, project_id: str,
                         content_id: str) -> dict:
@@ -550,7 +577,7 @@ def make_handler(app: ProofTrailApp):
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:
-                return 200, app.list_projects(token)
+                return 200, app.list_projects(token, *_parse_paging(query))
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "collaborators"):
@@ -593,7 +620,8 @@ def make_handler(app: ProofTrailApp):
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "versions"):
-                return 200, app.versions(token, parts[2])
+                return 200, app.versions(token, parts[2],
+                                         *_parse_paging(query))
             if (method == "GET" and len(parts) == 5
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "versions" and parts[4] == "content"):
@@ -602,12 +630,8 @@ def make_handler(app: ProofTrailApp):
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "events"):
-                try:
-                    limit = int(query.get("limit", ["50"])[0])
-                    offset = int(query.get("offset", ["0"])[0])
-                except ValueError:
-                    raise ApiError(400, "limit and offset must be integers")
-                return 200, app.events(token, parts[2], limit, offset)
+                return 200, app.events(token, parts[2],
+                                       *_parse_paging(query))
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "verify"):
