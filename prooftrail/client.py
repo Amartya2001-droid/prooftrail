@@ -150,3 +150,6 @@ class ProofTrailClient:
         return self._request(
             "GET",
             f"/api/projects/{project_id}/export?claim={quote(claim)}")
+
+    def verify_bundle(self, bundle: dict) -> dict:
+        return self._request("POST", "/api/bundles/verify", bundle)

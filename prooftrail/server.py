@@ -16,6 +16,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - GET  /api/projects/<id>/versions
 - GET  /api/projects/<id>/versions/content?content_id=sha256:...
 - GET  /api/projects/<id>/verify      (verification page: hashes, no text)
+- POST /api/bundles/verify            (verify a signed bundle; no auth)
 
 Run: python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
 """
@@ -42,7 +43,11 @@ from .crypto import content_id
 from .diffing import diff_texts
 from .persistence import load_state, save_state
 from .store import Actor
-from .verification import build_evidence_bundle, verification_page
+from .verification import (
+    build_evidence_bundle,
+    verification_page,
+    verify_evidence_bundle,
+)
 
 
 def _now() -> str:
@@ -84,6 +89,8 @@ OPENAPI_SPEC = {
             "get": {"summary": "Verification page: hashes, no text"}},
         "/api/projects/{id}/export": {
             "get": {"summary": "Signed dispute evidence bundle"}},
+        "/api/bundles/verify": {
+            "post": {"summary": "Verify a signed bundle, no auth required"}},
     },
 }
 
@@ -526,6 +533,14 @@ class ProofTrailApp:
                 project, texts,
                 self._contribution_map(project).coverage())
 
+    def verify_bundle(self, bundle) -> dict:
+        """Verify a signed evidence bundle. Public: a third party
+        checking a dispute needs no account on this server."""
+        if not isinstance(bundle, dict):
+            raise ApiError(400, "bundle must be a JSON object")
+        problems = verify_evidence_bundle(bundle)
+        return {"valid": problems == [], "problems": problems}
+
 
 def make_handler(app: ProofTrailApp):
     class Handler(BaseHTTPRequestHandler):
@@ -658,6 +673,8 @@ def make_handler(app: ProofTrailApp):
                     and parts[3] == "export"):
                 return 200, app.export(
                     token, parts[2], query.get("claim", [""])[0])
+            if (method == "POST" and parts == ["api", "bundles", "verify"]):
+                return 200, app.verify_bundle(body)
             raise ApiError(404, "route not found")
 
         def _handle(self, method: str) -> None:

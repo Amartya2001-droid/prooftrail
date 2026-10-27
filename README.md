@@ -84,13 +84,26 @@ client lives in `prooftrail/client.py`.
   that version with `"duplicate": true` and adds no ledger event.
   Versions record filename, content type and byte size.
 - `POST /api/projects/<id>/approvals` — approve a version
-- `GET /api/projects/<id>/versions` — version history with metadata
+- `POST /api/projects/<id>/declarations` — declare AI use for a version
+  (`{content_id, tool, prompt_summary?, sentence_indices?}`); the
+  declaration is a signed ledger event, so it cannot be edited or
+  dropped without breaking the chain
+- `GET /api/projects/<id>/declarations` — list a project's declarations
+- `GET /api/projects/<id>/contributions` — Human Contribution Map:
+  every sentence with its source (human, AI-assisted, imported,
+  external) plus coverage percentages
+- `GET /api/projects/<id>/diff?from=&to=` — semantic sentence diff
+  between two versions (defaults: latest version vs its parent)
+- `GET /api/projects/<id>/versions?limit=&offset=` — version history
+  with metadata, paged like events
 - `GET /api/projects/<id>/versions/content?content_id=sha256:...`
 - `GET /api/projects/<id>/events?limit=&offset=` — ledger events,
   newest first, paged (limit 1–200)
 - `GET /api/projects/<id>/verify` — verification page data (hashes only)
 - `GET /api/projects/<id>/export?claim=` — signed dispute evidence
   bundle, signed with the exporter's own key
+- `POST /api/bundles/verify` — verify a signed bundle, no auth: a
+  third party checking a dispute needs no account
 
 Auth design: an actor's Ed25519 signing key is derived from their
 password (PBKDF2, separate salts for login check and key). The server
