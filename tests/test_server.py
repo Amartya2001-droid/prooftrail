@@ -101,6 +101,43 @@ class TestServer(unittest.TestCase):
         self.assertEqual(status, 200)
         conn.close()
 
+    def test_only_creator_can_add_collaborators(self):
+        conn = self.conn()
+        # Register the creator here too (409 if the flow test already
+        # did), so this test also passes run on its own.
+        call(conn, "POST", "/api/users",
+             {"username": "designer", "name": "Designer",
+              "password": "password123"})
+        _, creator = call(conn, "POST", "/api/sessions",
+                          {"username": "designer", "password": "password123"})
+        call(conn, "POST", "/api/users",
+             {"username": "reviewer", "name": "Reviewer",
+              "password": "password123"})
+        call(conn, "POST", "/api/users",
+             {"username": "outsider", "name": "Outsider",
+              "password": "password123"})
+        status, reviewer = call(conn, "POST", "/api/sessions",
+                                {"username": "reviewer",
+                                 "password": "password123"})
+        self.assertEqual(status, 200)
+        status, proj = call(conn, "POST", "/api/projects",
+                            {"title": "Guarded"}, token=creator["token"])
+        pid = proj["project_id"]
+        status, _ = call(conn, "POST", f"/api/projects/{pid}/collaborators",
+                         {"username": "reviewer"}, token=creator["token"])
+        self.assertEqual(status, 200)
+        # A non-creator collaborator cannot invite anyone else.
+        status, err = call(conn, "POST",
+                           f"/api/projects/{pid}/collaborators",
+                           {"username": "outsider"}, token=reviewer["token"])
+        self.assertEqual(status, 403)
+        self.assertIn("creator", err["error"])
+        # The creator still can.
+        status, _ = call(conn, "POST", f"/api/projects/{pid}/collaborators",
+                         {"username": "outsider"}, token=creator["token"])
+        self.assertEqual(status, 200)
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

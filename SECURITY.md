@@ -20,6 +20,9 @@ how, and what is deliberately *not* covered.
   previous good state as `<path>.bak`; if the main file is corrupt or
   fails verification, load falls back to that backup, and refuses only
   if both are unusable.
+- **Inviting is creator-only.** Previously any collaborator could add
+  new collaborators; now only the project creator can, so a reviewer
+  added for one version cannot invite anyone else into the project.
 - **Credential theft from disk.** The state file is written atomically
   (temp file + rename) with mode `0600`, so a crash cannot half-write it
   and other local users cannot read it.

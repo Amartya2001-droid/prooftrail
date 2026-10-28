@@ -28,6 +28,7 @@ def project_to_dict(project: Project) -> dict:
     return {
         "project_id": project.project_id,
         "title": project.title,
+        "creator_id": project.creator_id,
         "blobs": {cid: base64.b64encode(data).decode()
                   for cid, data in project._blobs.items()},
         "versions": [
@@ -65,6 +66,10 @@ def project_from_dict(data: dict) -> Project:
                       bytes.fromhex(collab["public_key"]))
         project.collaborators[actor.actor_id] = actor
         ledger.register_actor(actor.actor_id, actor.public_key)
+    # States written before creator tracking default to the first
+    # collaborator, who was the creator by construction.
+    project.creator_id = data.get("creator_id") or (
+        next(iter(project.collaborators), None))
     return project
 
 

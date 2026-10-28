@@ -51,8 +51,14 @@ class Project:
         self._blobs: dict[str, bytes] = {}
         self.versions: list[Version] = []
         self.collaborators: dict[str, Actor] = {}
+        # Who may invite new collaborators: the first collaborator
+        # added (the creator). Set explicitly by the server, or
+        # inferred from the first add for direct store use.
+        self.creator_id: str | None = None
 
     def add_collaborator(self, actor: Actor) -> None:
+        if self.creator_id is None:
+            self.creator_id = actor.actor_id
         self.collaborators[actor.actor_id] = actor
         self.ledger.register_actor(actor.actor_id, actor.public_key)
 

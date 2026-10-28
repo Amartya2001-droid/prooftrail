@@ -266,6 +266,7 @@ class ProofTrailApp:
 
             project = Project(project_id, title)
             project.add_collaborator(actor)
+            project.creator_id = actor.actor_id
             self.projects[project_id] = project
             self._save()
             return {"project_id": project_id}
@@ -295,6 +296,13 @@ class ProofTrailApp:
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
+            # Inviting is a creator-only power. Without this, any
+            # collaborator — including one added for a single review —
+            # could invite anyone else into the project and its history.
+            if (project.creator_id is not None
+                    and actor.actor_id != project.creator_id):
+                raise ApiError(
+                    403, "only the project creator can add collaborators")
             user = self.users.get(username)
             if user is None:
                 raise ApiError(404, "user not found")

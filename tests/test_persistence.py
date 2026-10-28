@@ -119,6 +119,20 @@ class TestPersistence(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_state(path)
 
+    def test_creator_id_survives_roundtrip(self):
+        designer = Actor.create("designer", "Freelance Designer")
+        client = Actor.create("client", "Client")
+        project = Project("brand-deck", "Brand Deck")
+        project.add_collaborator(designer)
+        project.add_collaborator(client)
+        users = {"designer": create_user("designer", "Freelance Designer", "pw")}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(path, users, {"brand-deck": project})
+            _, loaded_projects = load_state(path)
+        self.assertEqual(loaded_projects["brand-deck"].creator_id, "designer")
+
 
 if __name__ == "__main__":
     unittest.main()
