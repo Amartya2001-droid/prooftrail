@@ -73,6 +73,17 @@ class TestVerification(unittest.TestCase):
         page = verification_page(project, texts)
         self.assertEqual(page["self_approvals"], [])
 
+    def test_swapped_blob_content_is_caught(self):
+        designer, project, texts = make_project()
+        self.assertEqual(project.verify(), [])
+        # Swap v1's bytes for different bytes under the same id: the
+        # chain still vouches for the id, so only a content-hash check
+        # catches that the stored bytes are no longer the version.
+        project._blobs[project.versions[0].content_id] = b"forged bytes"
+        problems = project.verify()
+        self.assertTrue(any("does not match its hash" in p
+                            for p in problems))
+
 
 if __name__ == "__main__":
     unittest.main()

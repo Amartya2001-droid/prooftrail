@@ -16,6 +16,10 @@ how, and what is deliberately *not* covered.
   ledger chain, signatures, version linkage and blob presence — and
   refused outright if anything fails, so doctored history can never be
   served as if it were valid.
+- **Swapped content.** Verification also re-hashes every stored blob
+  against its version's content_id: the chain vouches for ids, so
+  without this check, replacing a version's bytes in the data file
+  would pass verification unnoticed.
 - **One bad file cannot destroy history.** Every save keeps the
   previous good state as `<path>.bak`; if the main file is corrupt or
   fails verification, load falls back to that backup, and refuses only

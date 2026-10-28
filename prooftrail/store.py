@@ -157,7 +157,13 @@ class Project:
         return list(self.versions)
 
     def verify(self) -> list[str]:
-        """Verify ledger chain plus version/parent consistency."""
+        """Verify ledger chain plus version/parent consistency.
+
+        Also verifies that every stored blob still hashes to its
+        version's content_id: without this, swapping a version's bytes
+        in the data file would pass verification, because the chain
+        only vouches for the ids, not the bytes behind them.
+        """
         problems = self.ledger.verify()
         for i, version in enumerate(self.versions):
             expected_parent = self.versions[i - 1].content_id if i else None
@@ -165,4 +171,7 @@ class Project:
                 problems.append(f"version {i}: parent linkage broken")
             if version.content_id not in self._blobs:
                 problems.append(f"version {i}: content missing from store")
+            elif content_id(self._blobs[version.content_id]) != version.content_id:
+                problems.append(
+                    f"version {i}: stored content does not match its hash")
         return problems
