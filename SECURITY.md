@@ -43,6 +43,8 @@ how, and what is deliberately *not* covered.
 - **Memory exhaustion.** Request bodies over 10 MiB are rejected on
   headers alone, before the body is read. JSON and base64 inputs are
   validated; wrong content types get 415.
+- **Empty uploads.** A zero-byte upload is rejected: it carries no
+  content to prove, so it must never enter the ledger as a version.
 - **Information leakage.** 500 responses are a generic "internal error"
   (details go to server stderr only). The verification page exposes
   hashes, never document content. Responses carry `nosniff` and

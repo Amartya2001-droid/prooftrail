@@ -346,6 +346,10 @@ class ProofTrailApp:
                 data = base64.b64decode(content_b64, validate=True)
             except binascii.Error:
                 raise ApiError(400, "content_base64 is not valid base64")
+            if not data:
+                raise ApiError(
+                    400, "content must not be empty: a zero-byte version "
+                    "is not meaningful provenance")
             # Timestamps are always server-assigned. A provenance ledger
             # must never trust the uploader's clock.
             # Idempotency: identical bytes to the latest version are the
