@@ -126,6 +126,20 @@ class Project:
         sentence_count = len(split_sentences(text))
         if any(i < 0 or i >= sentence_count for i in indices):
             raise ValueError("sentence_indices out of range for this version")
+        # One declaration per (version, tool, coverage): re-declaring
+        # the identical claim would spam the ledger with a second
+        # signed event for the same fact and double-count the
+        # coverage. A different tool, or different sentences, is a
+        # different claim and is still allowed.
+        for event in self.ledger.events:
+            if event["type"] != "declaration":
+                continue
+            payload = event.get("payload", {})
+            if (event.get("content_id") == version.content_id
+                    and payload.get("tool") == tool
+                    and list(payload.get("sentence_indices", [])) == indices):
+                raise ValueError(
+                    "duplicate declaration for this version and tool")
         return self.ledger.append(
             "declaration", actor.actor_id, actor.secret_key,
             content_id=version.content_id, timestamp=timestamp,

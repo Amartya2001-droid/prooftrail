@@ -70,6 +70,25 @@ class TestDeclarations(unittest.TestCase):
             self.project.declare(self.designer, self.v2, "ChatGPT",
                                  sentence_indices=[-1])
 
+    def test_declare_rejects_exact_duplicate(self):
+        self.project.declare(self.designer, self.v2, "ChatGPT",
+                             sentence_indices=[2])
+        with self.assertRaises(ValueError) as ctx:
+            self.project.declare(self.designer, self.v2, "ChatGPT",
+                                 "a different summary",
+                                 sentence_indices=[2])
+        self.assertIn("duplicate", str(ctx.exception))
+        self.assertEqual(len(self.project.declarations()), 1)
+
+    def test_declare_allows_different_tool_or_coverage(self):
+        self.project.declare(self.designer, self.v2, "ChatGPT",
+                             sentence_indices=[2])
+        self.project.declare(self.designer, self.v2, "Claude",
+                             sentence_indices=[2])
+        self.project.declare(self.designer, self.v2, "ChatGPT",
+                             sentence_indices=[1])
+        self.assertEqual(len(self.project.declarations()), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
