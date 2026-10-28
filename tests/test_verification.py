@@ -56,6 +56,23 @@ class TestVerification(unittest.TestCase):
         page = verification_page(project, texts, cmap.coverage())
         self.assertGreater(page["contribution_coverage_pct"]["ai-assisted"], 0)
 
+    def test_self_approval_is_flagged_not_hidden(self):
+        designer, project, texts = make_project()
+        # The fixture already has a client approval of v2; add a
+        # designer self-approval of v3.
+        project.approve(designer, project.versions[2], "2026-10-24T14:00:00Z")
+        page = verification_page(project, texts)
+        self.assertEqual(page["self_approvals"], [{
+            "label": "v3",
+            "content_id": project.versions[2].content_id,
+            "actor": "designer",
+        }])
+
+    def test_independent_approval_is_not_flagged(self):
+        _, project, texts = make_project()
+        page = verification_page(project, texts)
+        self.assertEqual(page["self_approvals"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

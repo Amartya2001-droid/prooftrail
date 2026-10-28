@@ -38,12 +38,29 @@ def verification_page(
         if i:
             entry["change"] = diff_texts(texts[i - 1], texts[i]).summary()
         chain.append(entry)
+    # Self-approvals are not rejected — a solo creator legitimately
+    # approves their own work — but they are weaker evidence than an
+    # independent approval, so the page names them explicitly instead
+    # of letting them pass as ordinary approvals.
+    by_id = {v.content_id: v for v in versions}
+    self_approvals = []
+    for event in project.ledger.events:
+        if event["type"] != "approval":
+            continue
+        version = by_id.get(event.get("content_id"))
+        if version is not None and version.actor_id == event["actor"]:
+            self_approvals.append({
+                "label": version.label,
+                "content_id": version.content_id,
+                "actor": event["actor"],
+            })
     return {
         "project_id": project.project_id,
         "title": project.title,
         "ledger_valid": project.verify() == [],
         "ledger_problems": project.verify(),
         "versions": chain,
+        "self_approvals": self_approvals,
         "contributors": [
             {"actor_id": a.actor_id, "name": a.name,
              "public_key": a.public_key.hex()}

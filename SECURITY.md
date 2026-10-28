@@ -49,6 +49,11 @@ how, and what is deliberately *not* covered.
   registration, login and collaborator invite, so "Designer" cannot
   exist alongside "designer" and sign ledger events under a
   lookalike name. Display names keep their original case.
+- **Self-approvals are flagged.** The verification page lists
+  approvals where the approver is the version's own uploader: they
+  are not rejected (a solo creator legitimately approves their own
+  work), but they are named explicitly as weaker evidence than an
+  independent approval.
 - **Information leakage.** 500 responses are a generic "internal error"
   (details go to server stderr only). The verification page exposes
   hashes, never document content. Responses carry `nosniff` and
