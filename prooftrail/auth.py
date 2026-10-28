@@ -122,6 +122,16 @@ class SessionStore:
     def revoke(self, token: str) -> None:
         self._sessions.pop(token, None)
 
+    def revoke_all(self, actor_id: str) -> list[str]:
+        """Revoke every session for one actor (lost-device case).
+        Returns the revoked tokens so the server can drop their
+        signing secrets too."""
+        revoked = [t for t, (owner, _) in self._sessions.items()
+                   if owner == actor_id]
+        for token in revoked:
+            self._sessions.pop(token, None)
+        return revoked
+
     def prune(self) -> None:
         now = self._now()
         expired = [t for t, (_, exp) in self._sessions.items() if now >= exp]

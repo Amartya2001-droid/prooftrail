@@ -63,6 +63,8 @@ OPENAPI_SPEC = {
         "/api/sessions": {"post": {"summary": "Log in, returns a token"}},
         "/api/sessions/revoke": {
             "post": {"summary": "Log out, requires Bearer token"}},
+        "/api/sessions/revoke-all": {
+            "post": {"summary": "Log out everywhere, requires Bearer token"}},
         "/api/projects": {
             "post": {"summary": "Create a project, requires Bearer token"},
             "get": {"summary": "List my projects, requires Bearer token"}},
@@ -301,6 +303,19 @@ class ProofTrailApp:
                 self.sessions.revoke(token)
                 self._secrets.pop(token, None)
             return {"revoked": True}
+
+    def logout_all(self, token: str | None) -> dict:
+        """Log the caller out everywhere: revoke every session for
+        their account, including the calling token, and drop the
+        associated signing secrets. For a lost or shared device,
+        revoking one token leaves the others live, so this is the
+        control that actually ends access."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            revoked = self.sessions.revoke_all(actor.actor_id)
+            for revoked_token in revoked:
+                self._secrets.pop(revoked_token, None)
+            return {"revoked": len(revoked)}
 
     # -- projects ------------------------------------------------------------
     def create_project(self, token: str | None, title: str) -> dict:
@@ -670,6 +685,8 @@ def make_handler(app: ProofTrailApp):
                                       remote_addr)
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
                 return 200, app.logout(token)
+            if method == "POST" and parts == ["api", "sessions", "revoke-all"]:
+                return 200, app.logout_all(token)
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:

@@ -74,6 +74,7 @@ client lives in `prooftrail/client.py`.
   (username 3–32 chars: letters, digits, `_`, `-`, `.`; password ≥ 8)
 - `POST /api/sessions` — log in, receive a token
 - `POST /api/sessions/revoke` — log out
+- `POST /api/sessions/revoke-all` — log out everywhere (lost-device case)
 - `POST /api/projects` — create a project
 - `GET /api/projects` — list the projects you collaborate on
 - `POST /api/projects/<id>/collaborators` — add a collaborator

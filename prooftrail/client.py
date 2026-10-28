@@ -72,6 +72,11 @@ class ProofTrailClient:
         self.token = None
         return body
 
+    def logout_all(self) -> dict:
+        body = self._request("POST", "/api/sessions/revoke-all")
+        self.token = None
+        return body
+
     def create_project(self, title: str) -> dict:
         return self._request("POST", "/api/projects", {"title": title})
 
