@@ -12,6 +12,10 @@ how, and what is deliberately *not* covered.
   iterations, separate salts for the login verifier and the key) and are
   never stored on disk; the state file holds salts, verifiers and public
   keys only.
+- **Tampered state files.** A data file is fully re-verified on load —
+  ledger chain, signatures, version linkage and blob presence — and
+  refused outright if anything fails, so doctored history can never be
+  served as if it were valid.
 - **Credential theft from disk.** The state file is written atomically
   (temp file + rename) with mode `0600`, so a crash cannot half-write it
   and other local users cannot read it.

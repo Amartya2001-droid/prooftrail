@@ -94,7 +94,14 @@ def save_state(path: str | Path, users: dict, projects: dict) -> None:
 
 
 def load_state(path: str | Path) -> tuple[dict, dict]:
-    """Load state; a missing file means a fresh, empty state."""
+    """Load state; a missing file means a fresh, empty state.
+
+    Every loaded project is fully verified before it is returned: a
+    data file whose ledger chain, signatures, version linkage or blob
+    store has been tampered with is refused outright, so a corrupted
+    or doctored state file can never be served as if it were valid
+    history. The refusal names the project and the first problem found.
+    """
     file = Path(path)
     if not file.exists():
         return {}, {}
@@ -106,4 +113,10 @@ def load_state(path: str | Path) -> tuple[dict, dict]:
              for name, rec in state.get("users", {}).items()}
     projects = {pid: project_from_dict(p)
                 for pid, p in state.get("projects", {}).items()}
+    for pid, project in projects.items():
+        problems = project.verify()
+        if problems:
+            raise ValueError(
+                f"state file failed verification for project {pid}: "
+                + "; ".join(problems[:3]))
     return users, projects

@@ -210,9 +210,11 @@ class SecurityTestCase(unittest.TestCase):
         project["events"][0]["content_id"] = "sha256:" + "0" * 64
         tampered = Path(self.tmp.name) / "tampered.json"
         tampered.write_text(json.dumps(state))
-        _, projects = load_state(tampered)
-        loaded = projects[pid]
-        self.assertTrue(loaded.verify())
+        # A tampered state file is refused at load time, not served and
+        # caught later: the guardrail is the refusal itself.
+        with self.assertRaises(ValueError) as ctx:
+            load_state(tampered)
+        self.assertIn(pid, str(ctx.exception))
 
 
 if __name__ == "__main__":
