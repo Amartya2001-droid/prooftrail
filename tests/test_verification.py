@@ -47,6 +47,24 @@ class TestVerification(unittest.TestCase):
         self.assertTrue(any("does not match its hash" in p
                             for p in verify_evidence_bundle(bundle)))
 
+    def test_bundle_carries_declarations_coverage_keys_and_timestamp(self):
+        designer, project, texts = make_project()
+        project.declare(designer, project.versions[2], "ChatGPT",
+                        "Rewrite tagline", [], "2026-10-24T15:00:00Z")
+        bundle = build_evidence_bundle(
+            project, texts, designer.secret_key, designer.public_key,
+            contribution_coverage={"ai-assisted": 25.0},
+            exported_at="2026-10-28T12:00:00Z")
+        self.assertEqual(bundle["exported_at"], "2026-10-28T12:00:00Z")
+        self.assertEqual(bundle["contribution_coverage_pct"],
+                         {"ai-assisted": 25.0})
+        self.assertEqual(len(bundle["declarations"]), 1)
+        self.assertEqual(bundle["declarations"][0]["tool"], "ChatGPT")
+        self.assertIn("designer", bundle["actor_public_keys"])
+        self.assertIn("client", bundle["actor_public_keys"])
+        self.assertEqual(bundle["self_approvals"], [])
+        self.assertEqual(verify_evidence_bundle(bundle), [])
+
     def test_contribution_map_feeds_page(self):
         _, project, texts = make_project()
         decl = Declaration("v3", "designer", "ChatGPT",

@@ -101,7 +101,9 @@ client lives in `prooftrail/client.py`.
   newest first, paged (limit 1–200)
 - `GET /api/projects/<id>/verify` — verification page data (hashes only)
 - `GET /api/projects/<id>/export?claim=` — signed dispute evidence
-  bundle, signed with the exporter's own key
+  bundle, signed with the exporter's own key, carrying the versions,
+  diffs, AI declarations, contribution coverage, actor public keys
+  and export timestamp so a third party can re-verify it standalone
 - `POST /api/bundles/verify` — verify a signed bundle, no auth: a
   third party checking a dispute needs no account
 

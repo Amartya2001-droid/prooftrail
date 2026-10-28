@@ -19,6 +19,28 @@ from .diffing import diff_texts
 from .store import Project
 
 
+def self_approvals_for(project: Project) -> list[dict[str, Any]]:
+    """Approvals where the approver is the version's own uploader.
+
+    Not rejected — a solo creator legitimately approves their own
+    work — but weaker evidence than an independent approval, so both
+    the verification page and the evidence bundle name them.
+    """
+    by_id = {v.content_id: v for v in project.history()}
+    found = []
+    for event in project.ledger.events:
+        if event["type"] != "approval":
+            continue
+        version = by_id.get(event.get("content_id"))
+        if version is not None and version.actor_id == event["actor"]:
+            found.append({
+                "label": version.label,
+                "content_id": version.content_id,
+                "actor": event["actor"],
+            })
+    return found
+
+
 def verification_page(
     project: Project,
     texts: list[str],
@@ -42,25 +64,13 @@ def verification_page(
     # approves their own work — but they are weaker evidence than an
     # independent approval, so the page names them explicitly instead
     # of letting them pass as ordinary approvals.
-    by_id = {v.content_id: v for v in versions}
-    self_approvals = []
-    for event in project.ledger.events:
-        if event["type"] != "approval":
-            continue
-        version = by_id.get(event.get("content_id"))
-        if version is not None and version.actor_id == event["actor"]:
-            self_approvals.append({
-                "label": version.label,
-                "content_id": version.content_id,
-                "actor": event["actor"],
-            })
     return {
         "project_id": project.project_id,
         "title": project.title,
         "ledger_valid": project.verify() == [],
         "ledger_problems": project.verify(),
         "versions": chain,
-        "self_approvals": self_approvals,
+        "self_approvals": self_approvals_for(project),
         "contributors": [
             {"actor_id": a.actor_id, "name": a.name,
              "public_key": a.public_key.hex()}
@@ -77,13 +87,26 @@ def build_evidence_bundle(
     owner_secret: bytes,
     owner_public: bytes,
     claim: str = "",
+    contribution_coverage: dict[str, float] | None = None,
+    exported_at: str | None = None,
 ) -> dict[str, Any]:
-    """Build a signed bundle for a dispute: content, diffs, history."""
+    """Build a signed bundle for a dispute: content, diffs, history.
+
+    A bundle must stand on its own for a third party: besides the
+    versions and diffs it carries the AI declarations, the Human
+    Contribution Map coverage, the self-approval flags, every
+    collaborator's public key (so the embedded ledger chain can be
+    re-verified without an account), and a server-assigned export
+    timestamp. All of it is covered by the owner's signature.
+    """
+    from datetime import datetime, timezone
+
     versions = project.history()
     bundle: dict[str, Any] = {
         "project_id": project.project_id,
         "title": project.title,
         "claim": claim,
+        "exported_at": exported_at or datetime.now(timezone.utc).isoformat(),
         "versions": [
             {
                 "label": v.label,
@@ -99,6 +122,18 @@ def build_evidence_bundle(
             diff_texts(texts[i - 1], texts[i]).summary()
             for i in range(1, len(texts))
         ],
+        "declarations": [
+            {"version_label": d.version_label, "actor_id": d.actor_id,
+             "tool": d.tool, "prompt_summary": d.prompt_summary,
+             "sentence_indices": d.sentence_indices}
+            for d in project.declarations()
+        ],
+        "contribution_coverage_pct": contribution_coverage or {},
+        "self_approvals": self_approvals_for(project),
+        "actor_public_keys": {
+            a.actor_id: a.public_key.hex()
+            for a in project.collaborators.values()
+        },
         "ledger_events": project.ledger.events,
         "ledger_valid_at_export": project.verify() == [],
     }

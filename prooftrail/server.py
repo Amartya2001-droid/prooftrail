@@ -561,8 +561,10 @@ class ProofTrailApp:
             project = self._project_for(actor, project_id)
             texts = [project.read(v).decode(errors="replace")
                      for v in project.versions]
-            return build_evidence_bundle(project, texts, actor.secret_key,
-                                         actor.public_key, claim)
+            return build_evidence_bundle(
+                project, texts, actor.secret_key, actor.public_key, claim,
+                contribution_coverage=self._contribution_map(project).coverage(),
+                exported_at=_now())
 
     def verify(self, token: str | None, project_id: str) -> dict:
         with self._lock:
