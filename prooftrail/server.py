@@ -153,6 +153,11 @@ LOGIN_LOCKOUT_SECONDS = 900
 # any legitimate signup burst and far below bot volume.
 REGISTER_WINDOW_SECONDS = 3600
 REGISTER_MAX_PER_IP = 30
+# Login spray defence: the per-username lockout stops guessing one
+# account, but not spraying many accounts from one address. 20 failed
+# logins in 10 minutes from one address locks that address out.
+LOGIN_IP_WINDOW_SECONDS = 600
+LOGIN_IP_MAX_FAILURES = 20
 
 
 class ApiError(Exception):
@@ -177,6 +182,7 @@ class ProofTrailApp:
         self._failed_logins: dict[str, list[float]] = {}
         self._lockouts: dict[str, float] = {}
         self._registrations: dict[str, list[float]] = {}
+        self._failed_logins_ip: dict[str, list[float]] = {}
 
     def _save(self) -> None:
         if self.data_path:
@@ -228,17 +234,33 @@ class ProofTrailApp:
         if len(attempts) >= LOGIN_MAX_FAILURES:
             self._lockouts[username] = now + LOGIN_LOCKOUT_SECONDS
 
-    def login(self, username: str, password: str) -> dict:
+    def _record_failed_login_ip(self, remote_addr: str, now: float) -> None:
+        attempts = [t for t in self._failed_logins_ip.get(remote_addr, [])
+                    if now - t < LOGIN_IP_WINDOW_SECONDS]
+        attempts.append(now)
+        self._failed_logins_ip[remote_addr] = attempts
+
+    def login(self, username: str, password: str,
+              remote_addr: str | None = None) -> dict:
         with self._lock:
             now = time.time()
             if now < self._lockouts.get(username, 0):
                 raise ApiError(429, "account locked after failed logins")
+            if remote_addr is not None:
+                ip_attempts = [
+                    t for t in self._failed_logins_ip.get(remote_addr, [])
+                    if now - t < LOGIN_IP_WINDOW_SECONDS]
+                if len(ip_attempts) >= LOGIN_IP_MAX_FAILURES:
+                    raise ApiError(
+                        429, "too many failed logins from this address")
             user = self.users.get(username)
             # Same response for unknown users and wrong passwords, so a
             # login oracle cannot enumerate accounts.
             secret = authenticate(user, password) if user else None
             if secret is None:
                 self._record_failed_login(username, now)
+                if remote_addr is not None:
+                    self._record_failed_login_ip(remote_addr, now)
                 raise ApiError(401, "invalid credentials")
             self._failed_logins.pop(username, None)
             self._lockouts.pop(username, None)
@@ -611,7 +633,8 @@ def make_handler(app: ProofTrailApp):
                 return 201, app.register(body["username"], body["name"],
                                          body["password"], remote_addr)
             if method == "POST" and parts == ["api", "sessions"]:
-                return 200, app.login(body["username"], body["password"])
+                return 200, app.login(body["username"], body["password"],
+                                      remote_addr)
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "projects"]:

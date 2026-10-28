@@ -29,6 +29,9 @@ how, and what is deliberately *not* covered.
 - **Brute force.** After 5 failed logins in 10 minutes, the username is
   locked for 15 minutes. Login failures return the same message for
   unknown users and wrong passwords, so accounts cannot be enumerated.
+  Separately, 20 failed logins in 10 minutes from one address locks
+  that address out, so spraying many accounts from one place stops
+  even though no single account hits its own lockout.
 - **Registration abuse.** Registrations are capped at 30 per hour per
   client address (429 beyond that), so an open deployment cannot be
   flooded with junk accounts from one address.
