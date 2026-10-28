@@ -158,6 +158,11 @@ REGISTER_MAX_PER_IP = 30
 # logins in 10 minutes from one address locks that address out.
 LOGIN_IP_WINDOW_SECONDS = 600
 LOGIN_IP_MAX_FAILURES = 20
+# General API throttle: no single address should be able to flood
+# the API. 300 requests per minute per address is far above any
+# legitimate client burst and far below abuse volume.
+REQUEST_WINDOW_SECONDS = 60
+REQUEST_MAX_PER_IP = 300
 
 
 class ApiError(Exception):
@@ -183,6 +188,21 @@ class ProofTrailApp:
         self._lockouts: dict[str, float] = {}
         self._registrations: dict[str, list[float]] = {}
         self._failed_logins_ip: dict[str, list[float]] = {}
+        self._request_counts: dict[str, list[float]] = {}
+
+    def check_request_rate(self, remote_addr: str | None) -> None:
+        """General per-address throttle, enforced by the HTTP layer
+        on every request. In-process app callers pass no address and
+        are not throttled."""
+        if remote_addr is None:
+            return
+        now = time.time()
+        counts = [t for t in self._request_counts.get(remote_addr, [])
+                  if now - t < REQUEST_WINDOW_SECONDS]
+        counts.append(now)
+        self._request_counts[remote_addr] = counts
+        if len(counts) > REQUEST_MAX_PER_IP:
+            raise ApiError(429, "too many requests from this address")
 
     def _save(self) -> None:
         if self.data_path:
@@ -723,6 +743,7 @@ def make_handler(app: ProofTrailApp):
 
         def _handle(self, method: str) -> None:
             try:
+                app.check_request_rate(self.client_address[0])
                 parsed = urlparse(self.path)
                 body = self._read_json() if method == "POST" else {}
                 status, payload = self._route(

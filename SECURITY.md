@@ -58,6 +58,9 @@ how, and what is deliberately *not* covered.
   are not rejected (a solo creator legitimately approves their own
   work), but they are named explicitly as weaker evidence than an
   independent approval.
+- **General API throttle.** Beyond the registration and login
+  limits, every request counts toward 300 per minute per client
+  address, so one address cannot flood the API.
 - **Information leakage.** 500 responses are a generic "internal error"
   (details go to server stderr only). The verification page exposes
   hashes, never document content. Responses carry `nosniff` and
