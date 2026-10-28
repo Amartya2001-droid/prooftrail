@@ -16,6 +16,10 @@ how, and what is deliberately *not* covered.
   ledger chain, signatures, version linkage and blob presence — and
   refused outright if anything fails, so doctored history can never be
   served as if it were valid.
+- **One bad file cannot destroy history.** Every save keeps the
+  previous good state as `<path>.bak`; if the main file is corrupt or
+  fails verification, load falls back to that backup, and refuses only
+  if both are unusable.
 - **Credential theft from disk.** The state file is written atomically
   (temp file + rename) with mode `0600`, so a crash cannot half-write it
   and other local users cannot read it.

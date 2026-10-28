@@ -77,6 +77,48 @@ class TestPersistence(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_state(path)
 
+    def test_tampered_main_file_falls_back_to_previous_good_backup(self):
+        designer = Actor.create("designer", "Freelance Designer")
+        project = Project("brand-deck", "Brand Deck")
+        project.add_collaborator(designer)
+        project.upload(designer, b"v1", "2026-10-24T10:00:00Z", "v1")
+        users = {"designer": create_user("designer", "Freelance Designer", "pw")}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(path, users, {"brand-deck": project})
+            # A second save rotates the first good state into .bak.
+            project.upload(designer, b"v2", "2026-10-24T11:00:00Z", "v2")
+            save_state(path, users, {"brand-deck": project})
+            import json
+
+            state = json.loads(path.read_text())
+            state["projects"]["brand-deck"]["events"][0]["payload"] = {
+                "label": "forged"}
+            path.write_text(json.dumps(state))
+            _, loaded_projects = load_state(path)
+            # The backup holds the one-version state, not the tampered
+            # two-version state.
+            self.assertEqual(
+                [v.label for v in loaded_projects["brand-deck"].history()],
+                ["v1"])
+
+    def test_corrupt_main_and_backup_are_both_refused(self):
+        designer = Actor.create("designer", "Freelance Designer")
+        project = Project("brand-deck", "Brand Deck")
+        project.add_collaborator(designer)
+        project.upload(designer, b"v1", "2026-10-24T10:00:00Z", "v1")
+        users = {"designer": create_user("designer", "Freelance Designer", "pw")}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(path, users, {"brand-deck": project})
+            save_state(path, users, {"brand-deck": project})
+            path.write_text("{not json")
+            Path(str(path) + ".bak").write_text("{not json either")
+            with self.assertRaises(ValueError):
+                load_state(path)
+
 
 if __name__ == "__main__":
     unittest.main()

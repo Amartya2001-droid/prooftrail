@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -73,12 +75,22 @@ def save_state(path: str | Path, users: dict, projects: dict) -> None:
     so it must not be world-readable — and a crash mid-write must not
     leave a half-written state file behind. Write to a temp file in the
     same directory, restrict it, then rename over the destination.
+
+    Before replacing an existing state file, the previous copy is kept
+    as ``<path>.bak`` (also 0600). That backup is the fallback
+    ``load_state`` uses when the main file is corrupt or fails
+    verification, so one bad write or one tampered file cannot destroy
+    the last known-good history.
     """
     state = {
         "users": {name: user.to_dict() for name, user in users.items()},
         "projects": {pid: project_to_dict(p) for pid, p in projects.items()},
     }
     target = Path(path)
+    if target.exists():
+        backup = Path(str(target) + ".bak")
+        shutil.copy2(target, backup)
+        os.chmod(backup, 0o600)
     fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp-state-")
     try:
         with os.fdopen(fd, "w") as handle:
@@ -93,18 +105,9 @@ def save_state(path: str | Path, users: dict, projects: dict) -> None:
         raise
 
 
-def load_state(path: str | Path) -> tuple[dict, dict]:
-    """Load state; a missing file means a fresh, empty state.
-
-    Every loaded project is fully verified before it is returned: a
-    data file whose ledger chain, signatures, version linkage or blob
-    store has been tampered with is refused outright, so a corrupted
-    or doctored state file can never be served as if it were valid
-    history. The refusal names the project and the first problem found.
-    """
-    file = Path(path)
-    if not file.exists():
-        return {}, {}
+def _load_one(file: Path) -> tuple[dict, dict]:
+    """Read and verify a single state file. Raises ValueError if the
+    file is corrupt JSON or any project fails verification."""
     try:
         state = json.loads(file.read_text())
     except json.JSONDecodeError as exc:
@@ -120,3 +123,33 @@ def load_state(path: str | Path) -> tuple[dict, dict]:
                 f"state file failed verification for project {pid}: "
                 + "; ".join(problems[:3]))
     return users, projects
+
+
+def load_state(path: str | Path) -> tuple[dict, dict]:
+    """Load state; a missing file means a fresh, empty state.
+
+    Every loaded project is fully verified before it is returned: a
+    data file whose ledger chain, signatures, version linkage or blob
+    store has been tampered with is refused outright, so a corrupted
+    or doctored state file can never be served as if it were valid
+    history. If the main file is unusable but a previous-good backup
+    (``<path>.bak``) loads and verifies, the backup is returned
+    instead; if both fail, the error from the main file is raised.
+    """
+    file = Path(path)
+    if not file.exists():
+        return {}, {}
+    try:
+        return _load_one(file)
+    except ValueError as main_error:
+        backup = Path(str(file) + ".bak")
+        if backup.exists():
+            try:
+                users, projects = _load_one(backup)
+            except ValueError:
+                raise main_error from None
+            print(f"warning: state file {file} unusable "
+                  f"({main_error}); loaded backup {backup}",
+                  file=sys.stderr)
+            return users, projects
+        raise
