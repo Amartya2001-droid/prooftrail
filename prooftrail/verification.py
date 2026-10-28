@@ -16,6 +16,7 @@ from typing import Any
 
 from .crypto import content_id, sign, verify
 from .diffing import diff_texts
+from .ledger import Ledger
 from .store import Project
 
 
@@ -144,7 +145,14 @@ def build_evidence_bundle(
 
 
 def verify_evidence_bundle(bundle: dict[str, Any]) -> list[str]:
-    """Re-verify a bundle. Returns problems (empty = fully verified)."""
+    """Re-verify a bundle. Returns problems (empty = fully verified).
+
+    The owner's signature proves who exported the bundle, not that
+    its history is genuine — a malicious exporter could re-sign a
+    bundle with forged events. So verification also replays the
+    embedded ledger chain against the bundled actor public keys, and
+    checks version parent linkage, independently of the signature.
+    """
     problems: list[str] = []
     signature = bundle.get("owner_signature", "")
     public_hex = bundle.get("owner_public_key", "")
@@ -162,4 +170,27 @@ def verify_evidence_bundle(bundle: dict[str, Any]) -> list[str]:
             problems.append(
                 f"version {version['label']}: content does not match its hash"
             )
+    versions = bundle.get("versions", [])
+    for i, version in enumerate(versions):
+        expected_parent = versions[i - 1]["content_id"] if i else None
+        if version.get("parent_content_id") != expected_parent:
+            problems.append(
+                f"version {version['label']}: parent linkage broken")
+    actor_keys = bundle.get("actor_public_keys")
+    if not isinstance(actor_keys, dict) or not actor_keys:
+        problems.append(
+            "bundle does not include actor public keys; "
+            "ledger chain cannot be re-verified")
+        return problems
+    ledger = Ledger(bundle.get("project_id", ""))
+    keys_ok = True
+    for actor_id, key_hex in actor_keys.items():
+        try:
+            ledger.register_actor(actor_id, bytes.fromhex(key_hex))
+        except Exception:
+            problems.append(f"actor public key unreadable for {actor_id}")
+            keys_ok = False
+    if keys_ok:
+        ledger.events = bundle.get("ledger_events", [])
+        problems.extend(f"ledger: {p}" for p in ledger.verify())
     return problems

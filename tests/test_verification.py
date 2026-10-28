@@ -65,6 +65,50 @@ class TestVerification(unittest.TestCase):
         self.assertEqual(bundle["self_approvals"], [])
         self.assertEqual(verify_evidence_bundle(bundle), [])
 
+    def test_forged_ledger_events_fail_even_when_resigned(self):
+        # A malicious exporter re-signing a bundle with forged events
+        # must still fail: the owner signature proves who exported
+        # it, not that the embedded history is genuine.
+        import json
+
+        from prooftrail.crypto import sign
+
+        designer, project, texts = make_project()
+        bundle = build_evidence_bundle(project, texts, designer.secret_key,
+                                       designer.public_key)
+        bundle["ledger_events"][0]["payload"] = {"label": "forged"}
+        unsigned = {k: v for k, v in bundle.items()
+                    if k not in ("owner_signature", "owner_public_key")}
+        payload = json.dumps(unsigned, sort_keys=True,
+                             separators=(",", ":")).encode()
+        bundle["owner_signature"] = sign(
+            designer.secret_key, designer.public_key, payload).hex()
+        problems = verify_evidence_bundle(bundle)
+        self.assertTrue(any("ledger:" in p and "signature invalid" in p
+                            for p in problems))
+
+    def test_bundle_without_actor_keys_cannot_verify_chain(self):
+        import json
+
+        from prooftrail.crypto import sign
+
+        designer, project, texts = make_project()
+        bundle = build_evidence_bundle(project, texts, designer.secret_key,
+                                       designer.public_key)
+        del bundle["actor_public_keys"]
+        # Re-sign so the only failure is the missing keys, not the
+        # signature over the changed payload.
+        unsigned = {k: v for k, v in bundle.items()
+                    if k not in ("owner_signature", "owner_public_key")}
+        payload = json.dumps(unsigned, sort_keys=True,
+                             separators=(",", ":")).encode()
+        bundle["owner_signature"] = sign(
+            designer.secret_key, designer.public_key, payload).hex()
+        problems = verify_evidence_bundle(bundle)
+        self.assertEqual(problems, [
+            "bundle does not include actor public keys; "
+            "ledger chain cannot be re-verified"])
+
     def test_contribution_map_feeds_page(self):
         _, project, texts = make_project()
         decl = Declaration("v3", "designer", "ChatGPT",
