@@ -45,6 +45,10 @@ how, and what is deliberately *not* covered.
   validated; wrong content types get 415.
 - **Empty uploads.** A zero-byte upload is rejected: it carries no
   content to prove, so it must never enter the ledger as a version.
+- **Lookalike usernames.** Usernames are case-insensitive at
+  registration, login and collaborator invite, so "Designer" cannot
+  exist alongside "designer" and sign ledger events under a
+  lookalike name. Display names keep their original case.
 - **Information leakage.** 500 responses are a generic "internal error"
   (details go to server stderr only). The verification page exposes
   hashes, never document content. Responses carry `nosniff` and

@@ -207,6 +207,11 @@ class ProofTrailApp:
     def register(self, username: str, name: str, password: str,
                  remote_addr: str | None = None) -> dict:
         with self._lock:
+            # Usernames are case-insensitive: without this, "Designer"
+            # and "designer" would be two accounts, and a lookalike
+            # name could sign ledger events that look like someone
+            # else's. The display name keeps its original case.
+            username = username.lower()
             if remote_addr is not None:
                 now = time.time()
                 attempts = [t for t in self._registrations.get(remote_addr, [])
@@ -243,6 +248,7 @@ class ProofTrailApp:
     def login(self, username: str, password: str,
               remote_addr: str | None = None) -> dict:
         with self._lock:
+            username = username.lower()
             now = time.time()
             if now < self._lockouts.get(username, 0):
                 raise ApiError(429, "account locked after failed logins")
@@ -316,6 +322,7 @@ class ProofTrailApp:
     def add_collaborator(self, token: str | None, project_id: str,
                          username: str) -> dict:
         with self._lock:
+            username = username.lower()
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
             # Inviting is a creator-only power. Without this, any
