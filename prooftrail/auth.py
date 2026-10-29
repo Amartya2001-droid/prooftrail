@@ -16,9 +16,11 @@ Sessions are opaque random tokens held in memory only.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import secrets
+import struct
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -47,6 +49,12 @@ class UserRecord:
     salt_key: bytes = field(repr=False)
     verifier: bytes = field(repr=False)
     public_key: bytes
+    # Optional second factor. Defaults keep old state files loading:
+    # no TOTP secret, not enabled, no recovery codes.
+    totp_enabled: bool = False
+    totp_secret: str = ""
+    totp_last_step: int | None = None
+    recovery_codes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +65,10 @@ class UserRecord:
             "salt_key": self.salt_key.hex(),
             "verifier": self.verifier.hex(),
             "public_key": self.public_key.hex(),
+            "totp_enabled": self.totp_enabled,
+            "totp_secret": self.totp_secret,
+            "totp_last_step": self.totp_last_step,
+            "recovery_codes": self.recovery_codes,
         }
 
     @classmethod
@@ -69,6 +81,10 @@ class UserRecord:
             salt_key=bytes.fromhex(data["salt_key"]),
             verifier=bytes.fromhex(data["verifier"]),
             public_key=bytes.fromhex(data["public_key"]),
+            totp_enabled=data.get("totp_enabled", False),
+            totp_secret=data.get("totp_secret", ""),
+            totp_last_step=data.get("totp_last_step"),
+            recovery_codes=data.get("recovery_codes", []),
         )
 
 
@@ -173,6 +189,57 @@ class AuditLog:
     def events_for(self, actor_id: str) -> list[dict]:
         return [e.to_dict() for e in reversed(self._events)
                 if e.actor_id == actor_id]
+
+
+def generate_totp_secret() -> str:
+    """A fresh 160-bit TOTP secret, base32 without padding."""
+    return base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+
+
+def _totp_counter(timestamp: float, period: int = 30) -> int:
+    return int(timestamp) // period
+
+
+def totp_code(secret: str, timestamp: float, digits: int = 6,
+              period: int = 30) -> str:
+    """RFC 6238 TOTP (HMAC-SHA1, 30-second steps, 6 digits)."""
+    padded = secret + "=" * (-len(secret) % 8)
+    key = base64.b32decode(padded)
+    message = struct.pack(">Q", _totp_counter(timestamp, period))
+    digest = hmac.new(key, message, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return f"{value % (10 ** digits):0{digits}d}"
+
+
+def check_totp(secret: str, code: str, timestamp: float,
+               last_step: int | None, window: int = 1) -> int | None:
+    """Validate a TOTP code. Returns the matched time step, or None.
+
+    Accepts the current step plus/minus ``window`` steps for clock
+    skew, compares in constant time, and rejects a code reused within
+    the same step it already succeeded in — a captured code cannot be
+    replayed while it is still valid."""
+    if not (isinstance(code, str) and code.isdigit() and len(code) == 6):
+        return None
+    step = _totp_counter(timestamp)
+    for candidate in range(step - window, step + window + 1):
+        if candidate == last_step:
+            continue
+        if hmac.compare_digest(totp_code(secret, candidate * 30), code):
+            return candidate
+    return None
+
+
+def generate_recovery_codes(count: int = 10) -> list[str]:
+    """Single-use backup codes: 10 digits each, shown once at setup."""
+    return [f"{secrets.randbelow(100000):05d}"
+            f"{secrets.randbelow(100000):05d}" for _ in range(count)]
+
+
+def hash_recovery_code(code: str) -> str:
+    """Recovery codes are stored hashed, never in the clear."""
+    return hashlib.sha256(code.encode()).hexdigest()
 
 
 def authenticate_unknown(password: str) -> None:

@@ -85,6 +85,16 @@ how, and what is deliberately *not* covered.
   the change still verify, new events use the new key, and the key
   history persists across restarts — including keys of removed
   collaborators, whose past events must stay verifiable.
+- **Optional TOTP second factor.** Enrollment returns a secret and
+  otpauth URI, but takes effect only after a valid code confirms it.
+  A password-correct login then returns a 5-minute pending token
+  instead of a session; the pending token plus a code (or a hashed,
+  single-use recovery code) completes the login. Codes are compared
+  in constant time, accepted within one step of clock skew, and
+  rejected on reuse within the same step; failed second factors count
+  toward the lockout, and disabling TOTP requires the password again.
+  TOTP secrets are stored in the user record — standard TOTP
+  practice, and distinct from the password-derived signing key.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a

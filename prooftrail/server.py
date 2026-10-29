@@ -4,6 +4,10 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 
 - POST /api/users                     {username, name, password}
 - POST /api/users/password            (Bearer token; old + new password)
+- POST /api/users/totp/setup          (Bearer token; start TOTP enrollment)
+- POST /api/users/totp/confirm        (Bearer token; code; enable TOTP)
+- POST /api/users/totp/disable        (Bearer token; password; disable TOTP)
+- POST /api/sessions/totp             {pending_token, code | recovery_code}
 - POST /api/sessions                  {username, password} -> {token}
 - POST /api/sessions/revoke           (Bearer token; logs out)
 - POST /api/sessions/revoke-all       (Bearer token; logs out everywhere)
@@ -33,6 +37,7 @@ import argparse
 import base64
 import binascii
 import contextlib
+import hmac
 import json
 import re
 import secrets
@@ -49,7 +54,11 @@ from .auth import (
     SessionStore,
     authenticate,
     authenticate_unknown,
+    check_totp,
     create_user,
+    generate_recovery_codes,
+    generate_totp_secret,
+    hash_recovery_code,
     validate_password,
 )
 from .contributions import build_map
@@ -81,6 +90,14 @@ OPENAPI_SPEC = {
             "post": {"summary": "Log out everywhere, requires Bearer token"}},
         "/api/users/password": {
             "post": {"summary": "Change password, requires Bearer token"}},
+        "/api/users/totp/setup": {
+            "post": {"summary": "Start TOTP enrollment, requires Bearer token"}},
+        "/api/users/totp/confirm": {
+            "post": {"summary": "Confirm TOTP enrollment, requires Bearer token"}},
+        "/api/users/totp/disable": {
+            "post": {"summary": "Disable TOTP, requires Bearer token"}},
+        "/api/sessions/totp": {
+            "post": {"summary": "Complete a pending TOTP login"}},
         "/api/sessions/audit": {
             "get": {"summary": "My authentication audit trail, requires Bearer token"}},
         "/api/sessions": {
@@ -216,6 +233,10 @@ class ProofTrailApp:
         self._failed_logins_ip: dict[str, list[float]] = {}
         self._request_counts: dict[str, list[float]] = {}
         self.audit = AuditLog()
+        # Half-finished TOTP logins: pending token -> username, the
+        # password-derived secret, client identity, and a 5-minute
+        # expiry. No session exists until the second factor verifies.
+        self._pending_totp: dict[str, dict] = {}
         # Addresses each account has logged in from before, for the
         # new-address flag. In memory like sessions and the audit log:
         # a restart forgets familiarity, and the next login from any
@@ -326,7 +347,9 @@ class ProofTrailApp:
 
     def login(self, username: str, password: str,
               remote_addr: str | None = None,
-              user_agent: str | None = None) -> dict:
+              user_agent: str | None = None,
+              totp_code: str | None = None,
+              recovery_code: str | None = None) -> dict:
         with self._lock:
             username = username.lower()
             now = time.time()
@@ -357,20 +380,178 @@ class ProofTrailApp:
             self._failed_logins.pop(username, None)
             self._lockouts.pop(username, None)
             self.sessions.prune()
-            # A successful login from an address this account has never
-            # used before is flagged, so the account holder can tell a
-            # legitimate new location from a stolen password at a
-            # glance. Logins without an address (in-process callers)
-            # cannot be judged and are not flagged.
-            known = self._known_ips.setdefault(username, set())
-            new_ip = remote_addr is not None and remote_addr not in known
-            if remote_addr is not None:
-                known.add(remote_addr)
-            token = self.sessions.create(username, remote_addr, user_agent)
-            self._secrets[token] = secret
-            self.audit.record("login", username, remote_addr,
-                              "new address" if new_ip else "")
-            return {"token": token, "actor_id": username, "new_ip": new_ip}
+            if user.totp_enabled:
+                # Second factor required. A code or recovery code
+                # supplied with the password completes the login at
+                # once; otherwise the caller gets a short-lived pending
+                # token and finishes via POST /api/sessions/totp.
+                used_recovery = False
+                if totp_code is not None:
+                    step = check_totp(user.totp_secret, totp_code, now,
+                                      user.totp_last_step)
+                    if step is None:
+                        self._fail_totp(username, now, remote_addr)
+                    user.totp_last_step = step
+                elif recovery_code is not None:
+                    hashed = hash_recovery_code(recovery_code)
+                    if not any(hmac.compare_digest(hashed, stored)
+                               for stored in user.recovery_codes):
+                        self._fail_totp(username, now, remote_addr)
+                    user.recovery_codes.remove(hashed)
+                    used_recovery = True
+                else:
+                    pending = secrets.token_urlsafe(24)
+                    self._pending_totp[pending] = {
+                        "username": username, "secret": secret,
+                        "expires_at": now + 300,
+                        "remote_addr": remote_addr,
+                        "user_agent": user_agent,
+                    }
+                    self._prune_pending_totp(now)
+                    return {"totp_required": True,
+                            "pending_token": pending,
+                            "actor_id": username}
+                return self._finish_login(username, secret, remote_addr,
+                                          user_agent, used_recovery)
+            return self._finish_login(username, secret, remote_addr,
+                                      user_agent, False)
+
+    def _fail_totp(self, username: str, now: float,
+                   remote_addr: str | None) -> None:
+        """A wrong second factor is a failed login: it counts toward
+        the lockout, so a stolen password alone buys few guesses."""
+        self._record_failed_login(username, now, remote_addr)
+        self.audit.record("login_failed", username, remote_addr)
+        if remote_addr is not None:
+            self._record_failed_login_ip(remote_addr, now)
+        raise ApiError(401, "invalid second factor")
+
+    def _prune_pending_totp(self, now: float) -> None:
+        expired = [t for t, entry in self._pending_totp.items()
+                   if now >= entry["expires_at"]]
+        for token in expired:
+            self._pending_totp.pop(token, None)
+
+    def _finish_login(self, username: str, secret: bytes,
+                      remote_addr: str | None, user_agent: str | None,
+                      used_recovery: bool) -> dict:
+        """Create the session for a fully authenticated login, with
+        the unfamiliar-address flag. Shared by the password-only path
+        and the TOTP completion path."""
+        # A successful login from an address this account has never
+        # used before is flagged, so the account holder can tell a
+        # legitimate new location from a stolen password at a
+        # glance. Logins without an address (in-process callers)
+        # cannot be judged and are not flagged.
+        known = self._known_ips.setdefault(username, set())
+        new_ip = remote_addr is not None and remote_addr not in known
+        if remote_addr is not None:
+            known.add(remote_addr)
+        token = self.sessions.create(username, remote_addr, user_agent)
+        self._secrets[token] = secret
+        detail = "; ".join(part for part in
+                           ("new address" if new_ip else "",
+                            "recovery code" if used_recovery else "")
+                           if part)
+        self.audit.record("login", username, remote_addr, detail)
+        return {"token": token, "actor_id": username, "new_ip": new_ip}
+
+    def totp_verify(self, pending_token: str, code: str | None = None,
+                    recovery_code: str | None = None) -> dict:
+        """Complete a pending TOTP login. The pending token is kept
+        across failed attempts until it expires, so a mistyped code
+        is retryable — but each failure counts toward the lockout."""
+        with self._lock:
+            now = time.time()
+            self._prune_pending_totp(now)
+            entry = self._pending_totp.get(pending_token)
+            if entry is None:
+                raise ApiError(401, "pending login expired or invalid")
+            username = entry["username"]
+            user = self.users.get(username)
+            if user is None or not user.totp_enabled:
+                self._pending_totp.pop(pending_token, None)
+                raise ApiError(401, "pending login expired or invalid")
+            remote_addr = entry["remote_addr"]
+            used_recovery = False
+            if code is not None:
+                step = check_totp(user.totp_secret, code, now,
+                                  user.totp_last_step)
+                if step is None:
+                    self._fail_totp(username, now, remote_addr)
+                user.totp_last_step = step
+            elif recovery_code is not None:
+                hashed = hash_recovery_code(recovery_code)
+                if not any(hmac.compare_digest(hashed, stored)
+                           for stored in user.recovery_codes):
+                    self._fail_totp(username, now, remote_addr)
+                user.recovery_codes.remove(hashed)
+                used_recovery = True
+            else:
+                raise ApiError(400, "totp code or recovery code required")
+            self._pending_totp.pop(pending_token, None)
+            return self._finish_login(username, entry["secret"],
+                                      remote_addr, entry["user_agent"],
+                                      used_recovery)
+
+    def totp_setup(self, token: str | None) -> dict:
+        """Start TOTP enrollment: returns a secret and otpauth URI
+        for the authenticator app. Nothing takes effect until
+        totp_confirm proves the user can generate codes."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            user = self.users[actor.actor_id]
+            if user.totp_enabled:
+                raise ApiError(400, "TOTP is already enabled")
+            user.totp_secret = generate_totp_secret()
+            user.totp_last_step = None
+            self._save()
+            return {
+                "secret": user.totp_secret,
+                "otpauth_uri": (
+                    f"otpauth://totp/ProofTrail:{actor.actor_id}"
+                    f"?secret={user.totp_secret}&issuer=ProofTrail"
+                    f"&digits=6&period=30"),
+            }
+
+    def totp_confirm(self, token: str | None, code: str) -> dict:
+        """Enable TOTP after the user proves a valid code. Recovery
+        codes are returned here and only here — they are stored
+        hashed, so a lost list cannot be re-shown."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            user = self.users[actor.actor_id]
+            if user.totp_enabled:
+                raise ApiError(400, "TOTP is already enabled")
+            if not user.totp_secret:
+                raise ApiError(400, "no TOTP setup in progress")
+            step = check_totp(user.totp_secret, code, time.time(),
+                              user.totp_last_step)
+            if step is None:
+                raise ApiError(401, "invalid TOTP code")
+            user.totp_enabled = True
+            user.totp_last_step = step
+            codes = generate_recovery_codes()
+            user.recovery_codes = [hash_recovery_code(c) for c in codes]
+            self._save()
+            self.audit.record("totp_enabled", actor.actor_id)
+            return {"enabled": True, "recovery_codes": codes}
+
+    def totp_disable(self, token: str | None, password: str) -> dict:
+        """Disable TOTP. The password must be proven again, so a
+        stolen session alone cannot strip the second factor."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            user = self.users[actor.actor_id]
+            if authenticate(user, password) is None:
+                raise ApiError(401, "invalid credentials")
+            user.totp_enabled = False
+            user.totp_secret = ""
+            user.totp_last_step = None
+            user.recovery_codes = []
+            self._save()
+            self.audit.record("totp_disabled", actor.actor_id)
+            return {"disabled": True}
 
     def logout(self, token: str | None) -> dict:
         with self._lock:
@@ -860,7 +1041,19 @@ def make_handler(app: ProofTrailApp):
             if method == "POST" and parts == ["api", "sessions"]:
                 return 200, app.login(body["username"], body["password"],
                                       remote_addr,
-                                      self.headers.get("User-Agent"))
+                                      self.headers.get("User-Agent"),
+                                      body.get("totp_code"),
+                                      body.get("recovery_code"))
+            if method == "POST" and parts == ["api", "sessions", "totp"]:
+                return 200, app.totp_verify(body["pending_token"],
+                                            body.get("code"),
+                                            body.get("recovery_code"))
+            if method == "POST" and parts == ["api", "users", "totp", "setup"]:
+                return 200, app.totp_setup(token)
+            if method == "POST" and parts == ["api", "users", "totp", "confirm"]:
+                return 200, app.totp_confirm(token, body["code"])
+            if method == "POST" and parts == ["api", "users", "totp", "disable"]:
+                return 200, app.totp_disable(token, body["password"])
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-all"]:
