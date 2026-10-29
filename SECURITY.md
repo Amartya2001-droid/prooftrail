@@ -52,6 +52,10 @@ how, and what is deliberately *not* covered.
 - **Session theft window.** Tokens are 256-bit random values, expire
   after 24 hours, live in memory only, and can be revoked via
   `POST /api/sessions/revoke`.
+- **Session binding.** A session created over HTTP is bound to the
+  client address and user agent it came from: presenting the token
+  from a different address or agent revokes the token outright, so a
+  stolen token cannot be retried from the thief's machine.
 - **Timestamp forgery.** Upload and approval timestamps are always
   server-assigned; client-supplied timestamps are ignored.
 - **Memory exhaustion.** Request bodies over 10 MiB are rejected on

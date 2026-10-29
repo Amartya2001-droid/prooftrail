@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import contextlib
 import json
 import re
 import secrets
@@ -197,6 +198,23 @@ class ProofTrailApp:
         self._registrations: dict[str, list[float]] = {}
         self._failed_logins_ip: dict[str, list[float]] = {}
         self._request_counts: dict[str, list[float]] = {}
+        # Per-request client identity, set by the HTTP layer for the
+        # thread handling that request (threading.local, so concurrent
+        # requests cannot see each other's). In-process callers have
+        # no context, and their sessions are unbound.
+        self._request_local = threading.local()
+
+    @contextlib.contextmanager
+    def request_context(self, remote_addr: str | None,
+                        user_agent: str | None):
+        """Scope one request's client identity for session binding."""
+        self._request_local.remote_addr = remote_addr
+        self._request_local.user_agent = user_agent
+        try:
+            yield
+        finally:
+            self._request_local.remote_addr = None
+            self._request_local.user_agent = None
 
     def check_request_rate(self, remote_addr: str | None) -> None:
         """General per-address throttle, enforced by the HTTP layer
@@ -217,7 +235,9 @@ class ProofTrailApp:
             save_state(self.data_path, self.users, self.projects)
 
     def _actor_for_token(self, token: str | None) -> Actor:
-        actor_id = self.sessions.lookup(token)
+        remote_addr = getattr(self._request_local, "remote_addr", None)
+        user_agent = getattr(self._request_local, "user_agent", None)
+        actor_id = self.sessions.lookup(token, remote_addr, user_agent)
         if actor_id is None or token not in self._secrets:
             raise ApiError(401, "unauthorized")
         user = self.users[actor_id]
@@ -276,7 +296,8 @@ class ProofTrailApp:
         self._failed_logins_ip[remote_addr] = attempts
 
     def login(self, username: str, password: str,
-              remote_addr: str | None = None) -> dict:
+              remote_addr: str | None = None,
+              user_agent: str | None = None) -> dict:
         with self._lock:
             username = username.lower()
             now = time.time()
@@ -306,7 +327,7 @@ class ProofTrailApp:
             self._failed_logins.pop(username, None)
             self._lockouts.pop(username, None)
             self.sessions.prune()
-            token = self.sessions.create(username)
+            token = self.sessions.create(username, remote_addr, user_agent)
             self._secrets[token] = secret
             return {"token": token, "actor_id": username}
 
@@ -695,7 +716,8 @@ def make_handler(app: ProofTrailApp):
                                          body["password"], remote_addr)
             if method == "POST" and parts == ["api", "sessions"]:
                 return 200, app.login(body["username"], body["password"],
-                                      remote_addr)
+                                      remote_addr,
+                                      self.headers.get("User-Agent"))
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-all"]:
@@ -772,22 +794,24 @@ def make_handler(app: ProofTrailApp):
             raise ApiError(404, "route not found")
 
         def _handle(self, method: str) -> None:
-            try:
-                app.check_request_rate(self.client_address[0])
-                parsed = urlparse(self.path)
-                body = self._read_json() if method == "POST" else {}
-                status, payload = self._route(
-                    method, parsed.path, parse_qs(parsed.query), body,
-                    self.client_address[0])
-                self._send(status, payload)
-            except ApiError as exc:
-                self._send(exc.status, {"error": exc.message})
-            except KeyError as exc:
-                self._send(400, {"error": f"missing field: {exc.args[0]}"})
-            except Exception as exc:
-                # Never leak internals to the client; log server-side.
-                print(f"internal error: {exc!r}", file=sys.stderr)
-                self._send(500, {"error": "internal error"})
+            with app.request_context(self.client_address[0],
+                                     self.headers.get("User-Agent")):
+                try:
+                    app.check_request_rate(self.client_address[0])
+                    parsed = urlparse(self.path)
+                    body = self._read_json() if method == "POST" else {}
+                    status, payload = self._route(
+                        method, parsed.path, parse_qs(parsed.query), body,
+                        self.client_address[0])
+                    self._send(status, payload)
+                except ApiError as exc:
+                    self._send(exc.status, {"error": exc.message})
+                except KeyError as exc:
+                    self._send(400, {"error": f"missing field: {exc.args[0]}"})
+                except Exception as exc:
+                    # Never leak internals to the client; log server-side.
+                    print(f"internal error: {exc!r}", file=sys.stderr)
+                    self._send(500, {"error": "internal error"})
 
         def do_GET(self):
             self._handle("GET")

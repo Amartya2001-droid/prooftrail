@@ -136,35 +136,77 @@ def authenticate_unknown(password: str) -> None:
     return None
 
 
+@dataclass
+class SessionRecord:
+    """One login session: who, when it dies, and what client it
+    belongs to. The token itself is the dict key and is never stored
+    inside the record or exposed by session listings."""
+
+    actor_id: str
+    expires_at: float
+    created_at: float
+    last_seen: float
+    session_id: str
+    remote_addr: str | None
+    user_agent: str | None
+    label: str
+
+
 class SessionStore:
     """In-memory token -> actor_id sessions with expiry.
 
     Tokens expire after ``ttl_seconds`` (default 24h). ``time_fn`` exists
     so tests can control the clock; production uses ``time.time``.
+
+    A session created with a client address and user agent is bound to
+    them: a later request presenting the token from a different address
+    or agent has the token revoked on the spot instead of being served.
+    Sessions created without that information (in-process callers) are
+    unbound, and lookups without it skip the check, so the binding
+    only bites where the HTTP layer actually knows the client.
     """
 
     def __init__(self, ttl_seconds: int = SESSION_TTL_SECONDS,
                  time_fn=time.time) -> None:
         self._ttl = ttl_seconds
         self._now = time_fn
-        self._sessions: dict[str, tuple[str, float]] = {}
+        self._sessions: dict[str, SessionRecord] = {}
 
-    def create(self, actor_id: str) -> str:
+    def create(self, actor_id: str, remote_addr: str | None = None,
+               user_agent: str | None = None) -> str:
         token = secrets.token_urlsafe(32)
-        self._sessions[token] = (actor_id, self._now() + self._ttl)
+        now = self._now()
+        self._sessions[token] = SessionRecord(
+            actor_id=actor_id, expires_at=now + self._ttl,
+            created_at=now, last_seen=now,
+            session_id=secrets.token_hex(8),
+            remote_addr=remote_addr, user_agent=user_agent,
+            label=(user_agent or "unknown device")[:100])
         return token
 
-    def lookup(self, token: str | None) -> str | None:
+    def lookup(self, token: str | None, remote_addr: str | None = None,
+               user_agent: str | None = None) -> str | None:
         if not token:
             return None
         entry = self._sessions.get(token)
         if entry is None:
             return None
-        actor_id, expires_at = entry
-        if self._now() >= expires_at:
+        if self._now() >= entry.expires_at:
             self._sessions.pop(token, None)
             return None
-        return actor_id
+        # A bound session presented from elsewhere is stolen until
+        # proven otherwise: revoke it rather than merely rejecting
+        # this one request, so the token cannot be retried.
+        if (entry.remote_addr is not None and remote_addr is not None
+                and remote_addr != entry.remote_addr):
+            self._sessions.pop(token, None)
+            return None
+        if (entry.user_agent is not None and user_agent is not None
+                and user_agent != entry.user_agent):
+            self._sessions.pop(token, None)
+            return None
+        entry.last_seen = self._now()
+        return entry.actor_id
 
     def revoke(self, token: str) -> None:
         self._sessions.pop(token, None)
@@ -173,14 +215,15 @@ class SessionStore:
         """Revoke every session for one actor (lost-device case).
         Returns the revoked tokens so the server can drop their
         signing secrets too."""
-        revoked = [t for t, (owner, _) in self._sessions.items()
-                   if owner == actor_id]
+        revoked = [t for t, rec in self._sessions.items()
+                   if rec.actor_id == actor_id]
         for token in revoked:
             self._sessions.pop(token, None)
         return revoked
 
     def prune(self) -> None:
         now = self._now()
-        expired = [t for t, (_, exp) in self._sessions.items() if now >= exp]
+        expired = [t for t, rec in self._sessions.items()
+                   if now >= rec.expires_at]
         for token in expired:
             self._sessions.pop(token, None)
