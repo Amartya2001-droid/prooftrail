@@ -52,6 +52,10 @@ how, and what is deliberately *not* covered.
 - **Session theft window.** Tokens are 256-bit random values, expire
   after 24 hours, live in memory only, and can be revoked via
   `POST /api/sessions/revoke`.
+- **Idle sessions.** Thirty minutes without a request ends a session
+  even inside the 24-hour absolute window, so a token left on a
+  shared or stolen machine has a short life; activity refreshes the
+  idle clock, but never extends the absolute expiry.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a

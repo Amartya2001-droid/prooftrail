@@ -26,6 +26,10 @@ from .crypto import public_key_from_secret
 
 _ITERATIONS = 200_000
 SESSION_TTL_SECONDS = 24 * 3600
+# Idle sessions die sooner than the absolute expiry: half an hour
+# without a request ends the session even inside the 24-hour window,
+# so a token left on a shared or stolen machine has a short life.
+IDLE_TIMEOUT_SECONDS = 30 * 60
 
 
 def _pbkdf2(password: str, salt: bytes) -> bytes:
@@ -167,8 +171,10 @@ class SessionStore:
     """
 
     def __init__(self, ttl_seconds: int = SESSION_TTL_SECONDS,
+                 idle_seconds: int = IDLE_TIMEOUT_SECONDS,
                  time_fn=time.time) -> None:
         self._ttl = ttl_seconds
+        self._idle = idle_seconds
         self._now = time_fn
         self._sessions: dict[str, SessionRecord] = {}
 
@@ -191,7 +197,14 @@ class SessionStore:
         entry = self._sessions.get(token)
         if entry is None:
             return None
-        if self._now() >= entry.expires_at:
+        now = self._now()
+        if now >= entry.expires_at:
+            self._sessions.pop(token, None)
+            return None
+        # Idle expiry is checked before the binding checks and before
+        # last_seen is refreshed: an idle session is dead, and a
+        # request arriving after the idle window must not revive it.
+        if now - entry.last_seen >= self._idle:
             self._sessions.pop(token, None)
             return None
         # A bound session presented from elsewhere is stolen until
@@ -205,7 +218,7 @@ class SessionStore:
                 and user_agent != entry.user_agent):
             self._sessions.pop(token, None)
             return None
-        entry.last_seen = self._now()
+        entry.last_seen = now
         return entry.actor_id
 
     def revoke(self, token: str) -> None:
