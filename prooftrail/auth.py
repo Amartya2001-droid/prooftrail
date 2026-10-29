@@ -89,6 +89,26 @@ def authenticate(user: UserRecord, password: str) -> bytes | None:
     return _pbkdf2(password, user.salt_key)
 
 
+# Fixed dummy values for the unknown-user path. They are not secrets:
+# their only job is to make rejecting an unknown username cost the
+# same PBKDF2 work as rejecting a wrong password for a real user.
+_DUMMY_SALT = bytes(16)
+_DUMMY_VERIFIER = bytes(32)
+
+
+def authenticate_unknown(password: str) -> None:
+    """Burn the same password-checking work as a failed login.
+
+    Without this, an unknown username is rejected immediately while a
+    known username pays for a 200,000-iteration PBKDF2 first, and the
+    timing difference alone enumerates accounts despite the generic
+    error message. Always returns None.
+    """
+    candidate = _pbkdf2(password, _DUMMY_SALT)
+    hmac.compare_digest(candidate, _DUMMY_VERIFIER)
+    return None
+
+
 class SessionStore:
     """In-memory token -> actor_id sessions with expiry.
 

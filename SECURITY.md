@@ -36,6 +36,11 @@ how, and what is deliberately *not* covered.
   Separately, 20 failed logins in 10 minutes from one address locks
   that address out, so spraying many accounts from one place stops
   even though no single account hits its own lockout.
+- **Login timing oracle.** Rejecting an unknown username runs the
+  same PBKDF2 work as rejecting a wrong password for a real user, so
+  the response time cannot enumerate accounts either: without this,
+  unknown users were rejected immediately while known users paid for
+  200,000 iterations first.
 - **Registration abuse.** Registrations are capped at 30 per hour per
   client address (429 beyond that), so an open deployment cannot be
   flooded with junk accounts from one address.

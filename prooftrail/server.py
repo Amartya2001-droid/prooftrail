@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .auth import SessionStore, authenticate, create_user
+from .auth import SessionStore, authenticate, authenticate_unknown, create_user
 from .contributions import build_map
 from .crypto import content_id
 from .diffing import diff_texts
@@ -283,8 +283,13 @@ class ProofTrailApp:
                         429, "too many failed logins from this address")
             user = self.users.get(username)
             # Same response for unknown users and wrong passwords, so a
-            # login oracle cannot enumerate accounts.
-            secret = authenticate(user, password) if user else None
+            # login oracle cannot enumerate accounts — and the same
+            # PBKDF2 work, so the timing cannot either.
+            if user is None:
+                authenticate_unknown(password)
+                secret = None
+            else:
+                secret = authenticate(user, password)
             if secret is None:
                 self._record_failed_login(username, now)
                 if remote_addr is not None:
