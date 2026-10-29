@@ -7,6 +7,8 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/sessions/revoke           (Bearer token; logs out)
 - POST /api/sessions/revoke-all       (Bearer token; logs out everywhere)
 - GET  /api/sessions/audit            (Bearer token; own auth events)
+- GET  /api/sessions                 (Bearer token; own sessions)
+- POST /api/sessions/revoke-one       (Bearer token; revoke one session)
 - POST /api/projects                  {title} -> {project_id}
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
@@ -77,6 +79,10 @@ OPENAPI_SPEC = {
             "post": {"summary": "Log out everywhere, requires Bearer token"}},
         "/api/sessions/audit": {
             "get": {"summary": "My authentication audit trail, requires Bearer token"}},
+        "/api/sessions": {
+            "get": {"summary": "My sessions, requires Bearer token"}},
+        "/api/sessions/revoke-one": {
+            "post": {"summary": "Revoke one session by id, requires Bearer token"}},
         "/api/projects": {
             "post": {"summary": "Create a project, requires Bearer token"},
             "get": {"summary": "List my projects, requires Bearer token"}},
@@ -374,6 +380,34 @@ class ProofTrailApp:
         with self._lock:
             actor = self._actor_for_token(token)
             return {"events": self.audit.events_for(actor.actor_id)}
+
+    def sessions_for(self, token: str | None) -> dict:
+        """The caller's own sessions, with the calling one flagged.
+        Tokens never appear: session_id is the revocation handle."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            current = self.sessions.record_for_token(token)
+            current_id = current.session_id if current else None
+            sessions = self.sessions.list_sessions(actor.actor_id)
+            for session in sessions:
+                session["current"] = session["session_id"] == current_id
+            return {"sessions": sessions}
+
+    def revoke_session(self, token: str | None,
+                       session_id: str) -> dict:
+        """Revoke one of the caller's sessions by id. A foreign or
+        unknown id is a plain 404: confirming which ids exist would
+        leak other users' sessions."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            revoked = self.sessions.revoke_session(actor.actor_id,
+                                                   session_id)
+            if revoked is None:
+                raise ApiError(404, "session not found")
+            self._secrets.pop(revoked, None)
+            self.audit.record("session_revoked", actor.actor_id, None,
+                              session_id)
+            return {"revoked": True}
 
     # -- projects ------------------------------------------------------------
     def create_project(self, token: str | None, title: str) -> dict:
@@ -748,6 +782,10 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.logout_all(token)
             if method == "GET" and parts == ["api", "sessions", "audit"]:
                 return 200, app.audit_for(token)
+            if method == "GET" and parts == ["api", "sessions"]:
+                return 200, app.sessions_for(token)
+            if method == "POST" and parts == ["api", "sessions", "revoke-one"]:
+                return 200, app.revoke_session(token, body["session_id"])
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:

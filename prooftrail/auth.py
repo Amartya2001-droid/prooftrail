@@ -204,6 +204,11 @@ class SessionRecord:
     label: str
 
 
+def _iso(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
 class SessionStore:
     """In-memory token -> actor_id sessions with expiry.
 
@@ -271,6 +276,42 @@ class SessionStore:
 
     def revoke(self, token: str) -> None:
         self._sessions.pop(token, None)
+
+    def record_for_token(self, token: str | None) -> SessionRecord | None:
+        """The session record behind a token, if it is still live.
+        Used to mark the caller's own session in listings; it performs
+        no expiry or binding checks, so callers must validate first."""
+        if not token:
+            return None
+        return self._sessions.get(token)
+
+    def list_sessions(self, actor_id: str) -> list[dict]:
+        """Session metadata for one actor, newest first. Tokens are
+        never included: the session_id is the handle for revocation,
+        and it is useless without the token itself."""
+        records = [rec for rec in self._sessions.values()
+                   if rec.actor_id == actor_id]
+        records.sort(key=lambda rec: rec.created_at, reverse=True)
+        return [{
+            "session_id": rec.session_id,
+            "created_at": _iso(rec.created_at),
+            "last_seen": _iso(rec.last_seen),
+            "expires_at": _iso(rec.expires_at),
+            "remote_addr": rec.remote_addr,
+            "user_agent": rec.user_agent,
+            "label": rec.label,
+        } for rec in records]
+
+    def revoke_session(self, actor_id: str,
+                       session_id: str) -> str | None:
+        """Revoke one session by its id. Returns the revoked token so
+        the server can drop its signing secret, or None when no such
+        session belongs to this actor."""
+        for token, rec in self._sessions.items():
+            if rec.actor_id == actor_id and rec.session_id == session_id:
+                self._sessions.pop(token, None)
+                return token
+        return None
 
     def revoke_all(self, actor_id: str) -> list[str]:
         """Revoke every session for one actor (lost-device case).

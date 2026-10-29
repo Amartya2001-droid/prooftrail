@@ -61,6 +61,11 @@ how, and what is deliberately *not* covered.
   capped in-memory log (last 1,000 events). Each user sees only their
   own events via `GET /api/sessions/audit` — the trail answers "was
   that login me?" without exposing other accounts.
+- **Individual session control.** `GET /api/sessions` lists your own
+  sessions with device labels and a current-session flag, and
+  `POST /api/sessions/revoke-one` ends one session without logging
+  out everywhere. Listings never contain tokens: the session id is
+  the revocation handle, and it is useless on its own.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a
