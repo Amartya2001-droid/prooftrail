@@ -37,7 +37,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .auth import SessionStore, authenticate, authenticate_unknown, create_user
+from .auth import (
+    SessionStore,
+    authenticate,
+    authenticate_unknown,
+    create_user,
+    validate_password,
+)
 from .contributions import build_map
 from .crypto import content_id
 from .diffing import diff_texts
@@ -247,8 +253,10 @@ class ProofTrailApp:
             _validate_text("name", name, 100, required=True)
             if username in self.users:
                 raise ApiError(409, "username already exists")
-            if len(password) < 8:
-                raise ApiError(400, "password must be at least 8 characters")
+            try:
+                validate_password(username, password)
+            except ValueError as exc:
+                raise ApiError(400, str(exc)) from exc
             self.users[username] = create_user(username, name, password)
             self._save()
             return {"actor_id": username}

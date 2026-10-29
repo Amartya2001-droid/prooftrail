@@ -44,17 +44,17 @@ class TestServer(unittest.TestCase):
         conn = self.conn()
         status, _ = call(conn, "POST", "/api/users",
                          {"username": "designer", "name": "Designer",
-                          "password": "password123"})
+                          "password": "sunset-river-42"})
         self.assertEqual(status, 201)
         status, _ = call(conn, "POST", "/api/users",
                          {"username": "designer", "name": "Designer",
-                          "password": "password123"})
+                          "password": "sunset-river-42"})
         self.assertEqual(status, 409)
         status, login = call(conn, "POST", "/api/sessions",
                              {"username": "designer", "password": "wrongpass"})
         self.assertEqual(status, 401)
         status, login = call(conn, "POST", "/api/sessions",
-                             {"username": "designer", "password": "password123"})
+                             {"username": "designer", "password": "sunset-river-42"})
         self.assertEqual(status, 200)
         token = login["token"]
 
@@ -107,18 +107,18 @@ class TestServer(unittest.TestCase):
         # did), so this test also passes run on its own.
         call(conn, "POST", "/api/users",
              {"username": "designer", "name": "Designer",
-              "password": "password123"})
+              "password": "sunset-river-42"})
         _, creator = call(conn, "POST", "/api/sessions",
-                          {"username": "designer", "password": "password123"})
+                          {"username": "designer", "password": "sunset-river-42"})
         call(conn, "POST", "/api/users",
              {"username": "reviewer", "name": "Reviewer",
-              "password": "password123"})
+              "password": "sunset-river-42"})
         call(conn, "POST", "/api/users",
              {"username": "outsider", "name": "Outsider",
-              "password": "password123"})
+              "password": "sunset-river-42"})
         status, reviewer = call(conn, "POST", "/api/sessions",
                                 {"username": "reviewer",
-                                 "password": "password123"})
+                                 "password": "sunset-river-42"})
         self.assertEqual(status, 200)
         status, proj = call(conn, "POST", "/api/projects",
                             {"title": "Guarded"}, token=creator["token"])

@@ -43,9 +43,9 @@ class TestDeclarationsApi(unittest.TestCase):
     def _login(self, conn, username):
         call(conn, "POST", "/api/users",
              {"username": username, "name": username.title(),
-              "password": "password123"})
+              "password": "sunset-river-42"})
         _, login = call(conn, "POST", "/api/sessions",
-                        {"username": username, "password": "password123"})
+                        {"username": username, "password": "sunset-river-42"})
         return login["token"]
 
     def test_declarations_flow(self):

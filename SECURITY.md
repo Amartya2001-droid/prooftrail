@@ -41,6 +41,11 @@ how, and what is deliberately *not* covered.
   the response time cannot enumerate accounts either: without this,
   unknown users were rejected immediately while known users paid for
   200,000 iterations first.
+- **Weak passwords.** Registration rejects passwords from a
+  common-password denylist (breach-list entries such as `password123`)
+  and rejects the username itself as the password, on top of the
+  existing 8-character minimum. The policy is enforced at the
+  registration boundary, so existing accounts are unaffected.
 - **Registration abuse.** Registrations are capped at 30 per hour per
   client address (429 beyond that), so an open deployment cannot be
   flooded with junk accounts from one address.

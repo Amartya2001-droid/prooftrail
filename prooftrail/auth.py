@@ -66,6 +66,33 @@ class UserRecord:
         )
 
 
+# Passwords seen in breach lists and credential-stuffing dictionaries.
+# Checked case-insensitively at registration. This is a registration
+# boundary rule, not a property of create_user: low-level callers and
+# tests construct records directly, and the policy lives where accounts
+# are actually created.
+COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password123", "password1234", "passw0rd",
+    "12345678", "123456789", "1234567890", "123123", "111111", "000000",
+    "qwerty", "qwerty123", "abc123", "letmein1", "welcome", "welcome1",
+    "admin", "admin123", "monkey", "dragon", "football", "baseball",
+    "sunshine", "master", "shadow", "superman", "trustno1", "iloveyou",
+    "princess", "solo", "starwars", "whatever", "freedom", "hello123",
+    "charlie", "aa123456", "changeme", "secret123", "hunter123",
+})
+
+
+def validate_password(username: str, password: str) -> None:
+    """Enforce the registration password policy. Raises ValueError."""
+    if len(password) < 8:
+        raise ValueError("password must be at least 8 characters")
+    lowered = password.lower()
+    if lowered in COMMON_PASSWORDS:
+        raise ValueError("password is too common")
+    if lowered == username.lower():
+        raise ValueError("password must not be the username")
+
+
 def create_user(username: str, name: str, password: str) -> UserRecord:
     """Create a user record. Returns the record (never the password)."""
     salt_auth = secrets.token_bytes(16)

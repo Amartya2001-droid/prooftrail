@@ -6,13 +6,13 @@ from prooftrail.server import ApiError, ProofTrailApp
 class TestRevokeAll(unittest.TestCase):
     def setUp(self):
         self.app = ProofTrailApp()
-        self.app.register("designer", "Designer", "password123")
-        self.app.register("other", "Other", "password123")
+        self.app.register("designer", "Designer", "sunset-river-42")
+        self.app.register("other", "Other", "sunset-river-42")
 
     def test_revoke_all_kills_every_session_for_the_user(self):
-        token1 = self.app.login("designer", "password123")["token"]
-        token2 = self.app.login("designer", "password123")["token"]
-        other_token = self.app.login("other", "password123")["token"]
+        token1 = self.app.login("designer", "sunset-river-42")["token"]
+        token2 = self.app.login("designer", "sunset-river-42")["token"]
+        other_token = self.app.login("other", "sunset-river-42")["token"]
         result = self.app.logout_all(token1)
         self.assertEqual(result, {"revoked": 2})
         for dead in (token1, token2):

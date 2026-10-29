@@ -44,9 +44,9 @@ class TestPagingApi(unittest.TestCase):
         conn = self.conn()
         call(conn, "POST", "/api/users",
              {"username": "designer", "name": "Designer",
-              "password": "password123"})
+              "password": "sunset-river-42"})
         _, login = call(conn, "POST", "/api/sessions",
-                        {"username": "designer", "password": "password123"})
+                        {"username": "designer", "password": "sunset-river-42"})
         token = login["token"]
 
         pids = []

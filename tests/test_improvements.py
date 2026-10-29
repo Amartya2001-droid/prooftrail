@@ -57,10 +57,10 @@ class ImprovementTestCase(unittest.TestCase):
     def user(self, name):
         status, _ = call(self.conn, "POST", "/api/users",
                          {"username": name, "name": name,
-                          "password": "password123"})
+                          "password": "sunset-river-42"})
         self.assertIn(status, (201, 409))
         status, login = call(self.conn, "POST", "/api/sessions",
-                             {"username": name, "password": "password123"})
+                             {"username": name, "password": "sunset-river-42"})
         self.assertEqual(status, 200)
         return login["token"]
 
@@ -194,7 +194,7 @@ class TestValidation(ImprovementTestCase):
     def test_bad_username_and_title_and_filename_rejected(self):
         status, _ = call(self.conn, "POST", "/api/users",
                          {"username": "bad name!", "name": "Bad",
-                          "password": "password123"})
+                          "password": "sunset-river-42"})
         self.assertEqual(status, 400)
         alice = self.user("alice-valid")
         status, _ = call(self.conn, "POST", "/api/projects",

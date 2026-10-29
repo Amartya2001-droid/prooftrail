@@ -7,8 +7,8 @@ from prooftrail.server import ApiError, ProofTrailApp
 class TestUploadGuards(unittest.TestCase):
     def setUp(self):
         self.app = ProofTrailApp()
-        self.app.register("designer", "Designer", "password123")
-        token = self.app.login("designer", "password123")["token"]
+        self.app.register("designer", "Designer", "sunset-river-42")
+        token = self.app.login("designer", "sunset-river-42")["token"]
         self.token = token
         self.pid = self.app.create_project(token, "Brand Deck")["project_id"]
 

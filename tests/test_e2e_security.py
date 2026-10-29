@@ -64,10 +64,10 @@ class SecurityTestCase(unittest.TestCase):
     def register_login(self, username):
         status, _ = call(self.conn, "POST", "/api/users",
                          {"username": username, "name": username,
-                          "password": "password123"})
+                          "password": "sunset-river-42"})
         self.assertIn(status, (201, 409))
         status, login = call(self.conn, "POST", "/api/sessions",
-                             {"username": username, "password": "password123"})
+                             {"username": username, "password": "sunset-river-42"})
         self.assertEqual(status, 200)
         return login["token"]
 
@@ -118,7 +118,7 @@ class SecurityTestCase(unittest.TestCase):
         # Even the correct password is refused while locked out.
         status, body = call(self.conn, "POST", "/api/sessions",
                             {"username": "lockout-user",
-                             "password": "password123"})
+                             "password": "sunset-river-42"})
         self.assertEqual(status, 429)
 
     def test_logout_revokes_token(self):
@@ -199,7 +199,7 @@ class SecurityTestCase(unittest.TestCase):
              {"content_base64": base64.b64encode(b"secret work").decode(),
               "label": "v1"}, token=token)
         raw = Path(self.state_path).read_text()
-        self.assertNotIn("password123", raw)
+        self.assertNotIn("sunset-river-42", raw)
         self.assertNotIn("secret_key", raw)
         if os.name == "posix":
             self.assertEqual(oct(os.stat(self.state_path).st_mode & 0o777),

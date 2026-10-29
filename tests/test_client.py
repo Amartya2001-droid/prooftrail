@@ -29,8 +29,8 @@ class TestClient(unittest.TestCase):
     def test_full_flow_through_client(self):
         client = ProofTrailClient(f"http://127.0.0.1:{self.port}")
         self.assertEqual(client.health()["status"], "ok")
-        client.register("alice-client", "Alice", "password123")
-        client.login("alice-client", "password123")
+        client.register("alice-client", "Alice", "sunset-river-42")
+        client.login("alice-client", "sunset-river-42")
         project = client.create_project("Client Project")
         pid = project["project_id"]
         version = client.upload(pid, b"client draft", label="v1",
