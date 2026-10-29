@@ -210,6 +210,11 @@ class ProofTrailApp:
         self._failed_logins_ip: dict[str, list[float]] = {}
         self._request_counts: dict[str, list[float]] = {}
         self.audit = AuditLog()
+        # Addresses each account has logged in from before, for the
+        # new-address flag. In memory like sessions and the audit log:
+        # a restart forgets familiarity, and the next login from any
+        # address is flagged once — fail-visible, not fail-open.
+        self._known_ips: dict[str, set[str]] = {}
         # Per-request client identity, set by the HTTP layer for the
         # thread handling that request (threading.local, so concurrent
         # requests cannot see each other's). In-process callers have
@@ -346,10 +351,20 @@ class ProofTrailApp:
             self._failed_logins.pop(username, None)
             self._lockouts.pop(username, None)
             self.sessions.prune()
+            # A successful login from an address this account has never
+            # used before is flagged, so the account holder can tell a
+            # legitimate new location from a stolen password at a
+            # glance. Logins without an address (in-process callers)
+            # cannot be judged and are not flagged.
+            known = self._known_ips.setdefault(username, set())
+            new_ip = remote_addr is not None and remote_addr not in known
+            if remote_addr is not None:
+                known.add(remote_addr)
             token = self.sessions.create(username, remote_addr, user_agent)
             self._secrets[token] = secret
-            self.audit.record("login", username, remote_addr)
-            return {"token": token, "actor_id": username}
+            self.audit.record("login", username, remote_addr,
+                              "new address" if new_ip else "")
+            return {"token": token, "actor_id": username, "new_ip": new_ip}
 
     def logout(self, token: str | None) -> dict:
         with self._lock:

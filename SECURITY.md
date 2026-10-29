@@ -66,6 +66,12 @@ how, and what is deliberately *not* covered.
   `POST /api/sessions/revoke-one` ends one session without logging
   out everywhere. Listings never contain tokens: the session id is
   the revocation handle, and it is useless on its own.
+- **Unfamiliar-address logins are flagged.** The first successful
+  login from an address an account has never used returns
+  `new_ip: true` and is noted in the audit trail, so a login with a
+  stolen password from a new place stands out. Familiarity is kept
+  in memory like sessions: after a restart, the next login from any
+  address is flagged once — fail-visible, not fail-open.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a
