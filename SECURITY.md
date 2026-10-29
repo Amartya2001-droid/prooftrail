@@ -56,6 +56,11 @@ how, and what is deliberately *not* covered.
   even inside the 24-hour absolute window, so a token left on a
   shared or stolen machine has a short life; activity refreshes the
   idle clock, but never extends the absolute expiry.
+- **Authentication audit trail.** Registrations, logins, failed
+  logins, lockouts, logouts and revoke-all actions are recorded in a
+  capped in-memory log (last 1,000 events). Each user sees only their
+  own events via `GET /api/sessions/audit` — the trail answers "was
+  that login me?" without exposing other accounts.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a

@@ -20,7 +20,9 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from .crypto import public_key_from_secret
 
@@ -125,6 +127,52 @@ def authenticate(user: UserRecord, password: str) -> bytes | None:
 # same PBKDF2 work as rejecting a wrong password for a real user.
 _DUMMY_SALT = bytes(16)
 _DUMMY_VERIFIER = bytes(32)
+
+
+@dataclass
+class AuditEvent:
+    """One authentication event. Kept in memory only, like sessions:
+    a restart clears the trail, which is the honest trade-off of not
+    adding a second store for it."""
+
+    timestamp: float
+    event: str
+    actor_id: str | None
+    remote_addr: str | None
+    detail: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": datetime.fromtimestamp(
+                self.timestamp, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "event": self.event,
+            "actor_id": self.actor_id,
+            "remote_addr": self.remote_addr,
+            "detail": self.detail,
+        }
+
+
+class AuditLog:
+    """Capped, newest-first-queried log of authentication events.
+
+    Each user sees only their own events: the trail is evidence for
+    the account holder ("was that login me?"), not a window into
+    other accounts.
+    """
+
+    def __init__(self, max_events: int = 1000,
+                 time_fn=time.time) -> None:
+        self._events: deque[AuditEvent] = deque(maxlen=max_events)
+        self._now = time_fn
+
+    def record(self, event: str, actor_id: str | None,
+               remote_addr: str | None = None, detail: str = "") -> None:
+        self._events.append(AuditEvent(self._now(), event, actor_id,
+                                       remote_addr, detail))
+
+    def events_for(self, actor_id: str) -> list[dict]:
+        return [e.to_dict() for e in reversed(self._events)
+                if e.actor_id == actor_id]
 
 
 def authenticate_unknown(password: str) -> None:

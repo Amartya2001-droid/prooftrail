@@ -5,6 +5,8 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/users                     {username, name, password}
 - POST /api/sessions                  {username, password} -> {token}
 - POST /api/sessions/revoke           (Bearer token; logs out)
+- POST /api/sessions/revoke-all       (Bearer token; logs out everywhere)
+- GET  /api/sessions/audit            (Bearer token; own auth events)
 - POST /api/projects                  {title} -> {project_id}
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
@@ -39,6 +41,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 from .auth import (
+    AuditLog,
     SessionStore,
     authenticate,
     authenticate_unknown,
@@ -72,6 +75,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Log out, requires Bearer token"}},
         "/api/sessions/revoke-all": {
             "post": {"summary": "Log out everywhere, requires Bearer token"}},
+        "/api/sessions/audit": {
+            "get": {"summary": "My authentication audit trail, requires Bearer token"}},
         "/api/projects": {
             "post": {"summary": "Create a project, requires Bearer token"},
             "get": {"summary": "List my projects, requires Bearer token"}},
@@ -198,6 +203,7 @@ class ProofTrailApp:
         self._registrations: dict[str, list[float]] = {}
         self._failed_logins_ip: dict[str, list[float]] = {}
         self._request_counts: dict[str, list[float]] = {}
+        self.audit = AuditLog()
         # Per-request client identity, set by the HTTP layer for the
         # thread handling that request (threading.local, so concurrent
         # requests cannot see each other's). In-process callers have
@@ -272,22 +278,28 @@ class ProofTrailApp:
             _validate_username(username)
             _validate_text("name", name, 100, required=True)
             if username in self.users:
+                self.audit.record("register_failed", username, remote_addr,
+                                  "username already exists")
                 raise ApiError(409, "username already exists")
             try:
                 validate_password(username, password)
             except ValueError as exc:
                 raise ApiError(400, str(exc)) from exc
             self.users[username] = create_user(username, name, password)
+            self.audit.record("register", username, remote_addr)
             self._save()
             return {"actor_id": username}
 
-    def _record_failed_login(self, username: str, now: float) -> None:
+    def _record_failed_login(self, username: str, now: float,
+                             remote_addr: str | None = None) -> None:
         attempts = [t for t in self._failed_logins.get(username, [])
                     if now - t < LOGIN_FAIL_WINDOW_SECONDS]
         attempts.append(now)
         self._failed_logins[username] = attempts
         if len(attempts) >= LOGIN_MAX_FAILURES:
             self._lockouts[username] = now + LOGIN_LOCKOUT_SECONDS
+            self.audit.record("lockout", username, remote_addr,
+                              "5 failed logins in 10 minutes")
 
     def _record_failed_login_ip(self, remote_addr: str, now: float) -> None:
         attempts = [t for t in self._failed_logins_ip.get(remote_addr, [])
@@ -320,7 +332,8 @@ class ProofTrailApp:
             else:
                 secret = authenticate(user, password)
             if secret is None:
-                self._record_failed_login(username, now)
+                self._record_failed_login(username, now, remote_addr)
+                self.audit.record("login_failed", username, remote_addr)
                 if remote_addr is not None:
                     self._record_failed_login_ip(remote_addr, now)
                 raise ApiError(401, "invalid credentials")
@@ -329,13 +342,16 @@ class ProofTrailApp:
             self.sessions.prune()
             token = self.sessions.create(username, remote_addr, user_agent)
             self._secrets[token] = secret
+            self.audit.record("login", username, remote_addr)
             return {"token": token, "actor_id": username}
 
     def logout(self, token: str | None) -> dict:
         with self._lock:
             if token:
+                actor_id = self.sessions.lookup(token)
                 self.sessions.revoke(token)
                 self._secrets.pop(token, None)
+                self.audit.record("logout", actor_id)
             return {"revoked": True}
 
     def logout_all(self, token: str | None) -> dict:
@@ -349,7 +365,15 @@ class ProofTrailApp:
             revoked = self.sessions.revoke_all(actor.actor_id)
             for revoked_token in revoked:
                 self._secrets.pop(revoked_token, None)
+            self.audit.record("revoke_all", actor.actor_id, None,
+                              f"{len(revoked)} sessions")
             return {"revoked": len(revoked)}
+
+    def audit_for(self, token: str | None) -> dict:
+        """The caller's own authentication events, newest first."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            return {"events": self.audit.events_for(actor.actor_id)}
 
     # -- projects ------------------------------------------------------------
     def create_project(self, token: str | None, title: str) -> dict:
@@ -722,6 +746,8 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-all"]:
                 return 200, app.logout_all(token)
+            if method == "GET" and parts == ["api", "sessions", "audit"]:
+                return 200, app.audit_for(token)
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:
