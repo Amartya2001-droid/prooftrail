@@ -61,6 +61,32 @@ def project_to_dict(project: Project) -> dict:
     }
 
 
+def state_to_dict(users: dict, projects: dict) -> dict:
+    """The serializable state document, shared by every backend."""
+    return {
+        "users": {name: user.to_dict() for name, user in users.items()},
+        "projects": {pid: project_to_dict(p)
+                     for pid, p in projects.items()},
+    }
+
+
+def objects_from_state(state: dict, label: str = "state") -> tuple[dict, dict]:
+    """Rebuild users and projects from a state document, verifying
+    every project exactly as a file load does. Raises ValueError if
+    any project fails verification."""
+    users = {name: UserRecord.from_dict(rec)
+             for name, rec in state.get("users", {}).items()}
+    projects = {pid: project_from_dict(p)
+                for pid, p in state.get("projects", {}).items()}
+    for pid, project in projects.items():
+        problems = project.verify()
+        if problems:
+            raise ValueError(
+                f"{label} failed verification for project {pid}: "
+                + "; ".join(problems[:3]))
+    return users, projects
+
+
 def project_from_dict(data: dict) -> Project:
     project = Project(data["project_id"], data["title"])
     project._blobs = {cid: base64.b64decode(b)
@@ -101,10 +127,7 @@ def save_state(path: str | Path, users: dict, projects: dict) -> None:
     verification, so one bad write or one tampered file cannot destroy
     the last known-good history.
     """
-    state = {
-        "users": {name: user.to_dict() for name, user in users.items()},
-        "projects": {pid: project_to_dict(p) for pid, p in projects.items()},
-    }
+    state = state_to_dict(users, projects)
     target = Path(path)
     if target.exists():
         backup = Path(str(target) + ".bak")
@@ -131,17 +154,7 @@ def _load_one(file: Path) -> tuple[dict, dict]:
         state = json.loads(file.read_text())
     except json.JSONDecodeError as exc:
         raise ValueError(f"state file is corrupt: {exc}") from exc
-    users = {name: UserRecord.from_dict(rec)
-             for name, rec in state.get("users", {}).items()}
-    projects = {pid: project_from_dict(p)
-                for pid, p in state.get("projects", {}).items()}
-    for pid, project in projects.items():
-        problems = project.verify()
-        if problems:
-            raise ValueError(
-                f"state file failed verification for project {pid}: "
-                + "; ".join(problems[:3]))
-    return users, projects
+    return objects_from_state(state, label="state file")
 
 
 def load_state(path: str | Path) -> tuple[dict, dict]:

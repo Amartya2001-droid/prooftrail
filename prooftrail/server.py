@@ -39,6 +39,7 @@ import binascii
 import contextlib
 import hmac
 import json
+import os
 import re
 import secrets
 import sys
@@ -64,8 +65,10 @@ from .auth import (
 from .contributions import build_map
 from .crypto import content_id
 from .diffing import diff_texts
-from .persistence import load_state, save_state
+from .persistence import (load_state, objects_from_state, save_state,
+                          state_to_dict)
 from .store import Actor
+from .supabase_store import SupabaseStore
 from .verification import (
     build_evidence_bundle,
     verification_page,
@@ -221,6 +224,23 @@ class ProofTrailApp:
     def __init__(self, data_path: str | None = None) -> None:
         self.data_path = data_path
         self.users, self.projects = load_state(data_path) if data_path else ({}, {})
+        # Optional Supabase backend, selected by environment flag.
+        # The flag selects the save destination; when no Supabase row
+        # exists yet, a file-loaded state seeds memory and migrates
+        # to Supabase on the first save. Without the flag, the file
+        # store (or memory, when no path is given) stays the default.
+        self._supabase = None
+        if os.environ.get("PROOFTRAIL_STATE_BACKEND") == "supabase":
+            store = SupabaseStore.from_env()
+            if store is None:
+                raise ValueError(
+                    "PROOFTRAIL_STATE_BACKEND=supabase requires "
+                    "SUPABASE_URL and SUPABASE_KEY (or "
+                    "SUPABASE_SERVICE_KEY) to be set")
+            self._supabase = store
+            raw = store.load()
+            if raw is not None:
+                self.users, self.projects = objects_from_state(raw)
         self.sessions = SessionStore()
         self._secrets: dict[str, bytes] = {}
         # One lock serialises all mutations (and the saves that follow
@@ -275,7 +295,9 @@ class ProofTrailApp:
             raise ApiError(429, "too many requests from this address")
 
     def _save(self) -> None:
-        if self.data_path:
+        if self._supabase is not None:
+            self._supabase.save(state_to_dict(self.users, self.projects))
+        elif self.data_path:
             save_state(self.data_path, self.users, self.projects)
 
     def _actor_for_token(self, token: str | None) -> Actor:
