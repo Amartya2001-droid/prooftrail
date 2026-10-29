@@ -58,6 +58,26 @@ python3 -m unittest discover -s tests -v
 python3 demo/designer_scenario.py
 ```
 
+## Supabase backend (optional)
+
+The JSON file store is the default. To persist state in Supabase
+instead, create this table in your project, then start the server
+with the backend flag. The service key is server-side only and must
+never ship to a client.
+
+```sql
+CREATE TABLE IF NOT EXISTS prooftrail_state (id text PRIMARY KEY, state jsonb);
+```
+
+```sh
+PROOFTRAIL_STATE_BACKEND=supabase SUPABASE_URL=https://<project-ref>.supabase.co SUPABASE_SERVICE_KEY=<secret-key> python3 -m prooftrail.server
+```
+
+The server loads the row on startup (verified exactly like a file
+load) and saves to it on every change. Transient failures (429,
+5xx, network errors) retry up to three times with backoff; anything
+else fails loudly instead of being silently dropped.
+
 ## Week 1: HTTP API (auth, projects, file upload, version history)
 
 ```sh

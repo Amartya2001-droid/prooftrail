@@ -4,6 +4,7 @@ project or credentials exist, so no test here touches the network."""
 import json
 import os
 import unittest
+import urllib.error
 from unittest import mock
 
 from prooftrail.server import ProofTrailApp
@@ -68,6 +69,62 @@ class TestSupabaseStore(unittest.TestCase):
             store.load()
         with self.assertRaises(ValueError):
             store.save({"users": {}, "projects": {}})
+
+
+class TestSupabaseRetry(unittest.TestCase):
+    """The real HTTP layer retries transient failures, nothing else."""
+
+    def setUp(self):
+        self.store = SupabaseStore("https://example.supabase.co", "key")
+
+    def _response(self, status, body=b"[]"):
+        response = mock.MagicMock()
+        response.status = status
+        response.read.return_value = body
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        return response
+
+    def _error(self, code):
+        return urllib.error.HTTPError(
+            "https://example.supabase.co/rest/v1/prooftrail_state",
+            code, "error", {}, None)
+
+    def test_retries_500_then_succeeds(self):
+        with mock.patch("urllib.request.urlopen", side_effect=[
+                self._error(500), self._error(500),
+                self._response(200)]) as urlopen:
+            with mock.patch("time.sleep") as sleep:
+                self.assertIsNone(self.store.load())
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_does_not_retry_400(self):
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=[self._error(400)]) as urlopen:
+            with mock.patch("time.sleep") as sleep:
+                with self.assertRaises(ValueError):
+                    self.store.load()
+        self.assertEqual(urlopen.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_exhausted_retries_raise(self):
+        with mock.patch("urllib.request.urlopen", side_effect=[
+                self._error(503), self._error(503),
+                self._error(503)]) as urlopen:
+            with mock.patch("time.sleep"):
+                with self.assertRaises(ValueError):
+                    self.store.load()
+        self.assertEqual(urlopen.call_count, 3)
+
+    def test_retries_network_error_then_succeeds(self):
+        with mock.patch("urllib.request.urlopen", side_effect=[
+                urllib.error.URLError("boom"),
+                urllib.error.URLError("boom"),
+                self._response(200)]) as urlopen:
+            with mock.patch("time.sleep"):
+                self.assertIsNone(self.store.load())
+        self.assertEqual(urlopen.call_count, 3)
 
 
 class TestSupabaseServerWiring(unittest.TestCase):

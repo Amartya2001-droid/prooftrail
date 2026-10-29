@@ -14,6 +14,12 @@ creates nothing server-side. A minimal shape is ``id text primary
 key, state jsonb``. Use the service key only on the server: it
 bypasses row-level security, so it must never ship to a client.
 
+Transient failures are retried: a 429, a 5xx response, or a network
+error retries up to three attempts with exponential backoff, because
+a single dropped request must not lose a save. Other HTTP errors
+fail immediately, and a state document that fails to load or save
+after the retries raises instead of being silently served or dropped.
+
 Unlike the file store there is no local ``.bak`` fallback here;
 durability comes from Postgres itself. The state document holds the
 same data the file does (password verifiers, public keys, blobs,
@@ -25,11 +31,15 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
 TABLE = "prooftrail_state"
 ROW_ID = "main"
+MAX_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 0.5
+_RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
 
 class SupabaseStore:
@@ -66,15 +76,33 @@ class SupabaseStore:
 
     def _default_request(self, method: str, url: str, data: bytes | None,
                          headers: dict) -> tuple[int, bytes]:
-        request = urllib.request.Request(url, data=data, headers=headers,
-                                         method=method)
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as exc:
-            raise ValueError(
-                f"supabase request failed: {method} {url} "
-                f"-> HTTP {exc.code}") from exc
+        """One request, retried on transient failures only.
+
+        A 429, a 5xx response, or a network error retries with
+        exponential backoff; anything else fails on the first attempt.
+        Saves are upserts and loads are reads, so retrying them cannot
+        duplicate an effect. After the last attempt the error is
+        raised as ValueError, never swallowed.
+        """
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            request = urllib.request.Request(url, data=data, headers=headers,
+                                             method=method)
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return response.status, response.read()
+            except urllib.error.HTTPError as exc:
+                retryable = exc.code in _RETRYABLE_STATUS
+                if not retryable or attempt == MAX_ATTEMPTS:
+                    raise ValueError(
+                        f"supabase request failed: {method} {url} "
+                        f"-> HTTP {exc.code}") from exc
+            except urllib.error.URLError as exc:
+                if attempt == MAX_ATTEMPTS:
+                    raise ValueError(
+                        f"supabase request failed: {method} {url} "
+                        f"-> {exc.reason}") from exc
+            time.sleep(RETRY_DELAY_SECONDS * (2 ** (attempt - 1)))
+        raise AssertionError("unreachable: retry loop always returns or raises")
 
     def load(self) -> dict | None:
         """The stored state document, or None when no row exists."""
