@@ -72,6 +72,11 @@ how, and what is deliberately *not* covered.
   stolen password from a new place stands out. Familiarity is kept
   in memory like sessions: after a restart, the next login from any
   address is flagged once — fail-visible, not fail-open.
+- **Collaborator removal.** The project creator can remove a
+  collaborator with immediate effect: the next request from the
+  removed account fails the collaborator check. Past history still
+  verifies, because the ledger keeps the removed actor's key — removal
+  ends access, never the record of what they signed.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a

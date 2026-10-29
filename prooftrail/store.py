@@ -62,6 +62,18 @@ class Project:
         self.collaborators[actor.actor_id] = actor
         self.ledger.register_actor(actor.actor_id, actor.public_key)
 
+    def remove_collaborator(self, actor_id: str) -> None:
+        """Drop a collaborator's access, effective immediately: the
+        collaborator check runs on this dict, so the next request
+        fails. The ledger keeps the actor's key on purpose — past
+        events they signed must still verify, so removal ends access,
+        never history. The creator cannot be removed."""
+        if actor_id not in self.collaborators:
+            raise ValueError(f"{actor_id} is not a collaborator")
+        if actor_id == self.creator_id:
+            raise ValueError("cannot remove the project creator")
+        del self.collaborators[actor_id]
+
     def upload(
         self,
         actor: Actor,

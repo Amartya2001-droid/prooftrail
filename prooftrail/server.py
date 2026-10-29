@@ -11,6 +11,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/sessions/revoke-one       (Bearer token; revoke one session)
 - POST /api/projects                  {title} -> {project_id}
 - POST /api/projects/<id>/collaborators {username}
+- POST /api/projects/<id>/collaborators/remove {username} (creator only)
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
 - POST /api/projects/<id>/approvals   {content_id, timestamp?}
 - POST /api/projects/<id>/declarations {content_id, tool, prompt_summary?, sentence_indices?}
@@ -88,6 +89,8 @@ OPENAPI_SPEC = {
             "get": {"summary": "List my projects, requires Bearer token"}},
         "/api/projects/{id}/collaborators": {
             "post": {"summary": "Add a collaborator"}},
+        "/api/projects/{id}/collaborators/remove": {
+            "post": {"summary": "Remove a collaborator (creator only)"}},
         "/api/projects/{id}/uploads": {
             "post": {"summary": "Upload a version (idempotent on identical bytes)"}},
         "/api/projects/{id}/approvals": {
@@ -482,6 +485,27 @@ class ProofTrailApp:
             self._save()
             return {"project_id": project_id, "collaborator": username}
 
+    def remove_collaborator(self, token: str | None, project_id: str,
+                            username: str) -> dict:
+        with self._lock:
+            username = username.lower()
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            # Removal is creator-only like inviting: a reviewer must
+            # never be able to remove the creator or anyone else.
+            if (project.creator_id is not None
+                    and actor.actor_id != project.creator_id):
+                raise ApiError(
+                    403, "only the project creator can remove collaborators")
+            if username not in project.collaborators:
+                raise ApiError(404, "collaborator not found")
+            try:
+                project.remove_collaborator(username)
+            except ValueError as exc:
+                raise ApiError(400, str(exc)) from exc
+            self._save()
+            return {"project_id": project_id, "removed": username}
+
     def upload(self, token: str | None, project_id: str, content_b64: str,
                label: str = "", filename: str = "",
                content_type: str = "application/octet-stream") -> dict:
@@ -810,6 +834,12 @@ def make_handler(app: ProofTrailApp):
                     and parts[3] == "collaborators"):
                 return 200, app.add_collaborator(token, parts[2],
                                                  body["username"])
+            if (method == "POST" and len(parts) == 5
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "collaborators"
+                    and parts[4] == "remove"):
+                return 200, app.remove_collaborator(token, parts[2],
+                                                    body["username"])
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "uploads"):
