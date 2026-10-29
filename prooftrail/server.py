@@ -3,6 +3,7 @@
 Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 
 - POST /api/users                     {username, name, password}
+- POST /api/users/password            (Bearer token; old + new password)
 - POST /api/sessions                  {username, password} -> {token}
 - POST /api/sessions/revoke           (Bearer token; logs out)
 - POST /api/sessions/revoke-all       (Bearer token; logs out everywhere)
@@ -78,6 +79,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Log out, requires Bearer token"}},
         "/api/sessions/revoke-all": {
             "post": {"summary": "Log out everywhere, requires Bearer token"}},
+        "/api/users/password": {
+            "post": {"summary": "Change password, requires Bearer token"}},
         "/api/sessions/audit": {
             "get": {"summary": "My authentication audit trail, requires Bearer token"}},
         "/api/sessions": {
@@ -392,6 +395,49 @@ class ProofTrailApp:
             self.audit.record("revoke_all", actor.actor_id, None,
                               f"{len(revoked)} sessions")
             return {"revoked": len(revoked)}
+
+    def change_password(self, token: str | None, old_password: str,
+                        new_password: str) -> dict:
+        """Change the caller's password without breaking history.
+
+        The old password must be proven first. Because the signing key
+        is derived from the password, a change derives a new key: the
+        new key is registered in every project where the caller
+        collaborates, and the ledger keeps the old key, so events
+        signed before the change still verify. Other sessions are
+        revoked (they hold the old derived secret); the session making
+        the change keeps working with the new secret."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            user = self.users[actor.actor_id]
+            if authenticate(user, old_password) is None:
+                raise ApiError(401, "invalid current password")
+            try:
+                validate_password(actor.actor_id, new_password)
+            except ValueError as exc:
+                raise ApiError(400, str(exc)) from exc
+            new_record = create_user(actor.actor_id, user.name,
+                                     new_password)
+            new_secret = authenticate(new_record, new_password)
+            assert new_secret is not None
+            self.users[actor.actor_id] = new_record
+            for project in self.projects.values():
+                if actor.actor_id in project.collaborators:
+                    project.collaborators[actor.actor_id].public_key = (
+                        new_record.public_key)
+                    project.ledger.register_actor(
+                        actor.actor_id, new_record.public_key)
+            revoked = self.sessions.revoke_all_except(actor.actor_id,
+                                                      token)
+            for revoked_token in revoked:
+                self._secrets.pop(revoked_token, None)
+            if token is not None:
+                self._secrets[token] = new_secret
+            self._failed_logins.pop(actor.actor_id, None)
+            self._lockouts.pop(actor.actor_id, None)
+            self.audit.record("password_changed", actor.actor_id)
+            self._save()
+            return {"changed": True}
 
     def audit_for(self, token: str | None) -> dict:
         """The caller's own authentication events, newest first."""
@@ -819,6 +865,9 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-all"]:
                 return 200, app.logout_all(token)
+            if method == "POST" and parts == ["api", "users", "password"]:
+                return 200, app.change_password(
+                    token, body["old_password"], body["new_password"])
             if method == "GET" and parts == ["api", "sessions", "audit"]:
                 return 200, app.audit_for(token)
             if method == "GET" and parts == ["api", "sessions"]:

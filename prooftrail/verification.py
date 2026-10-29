@@ -132,8 +132,8 @@ def build_evidence_bundle(
         "contribution_coverage_pct": contribution_coverage or {},
         "self_approvals": self_approvals_for(project),
         "actor_public_keys": {
-            a.actor_id: a.public_key.hex()
-            for a in project.collaborators.values()
+            actor_id: [k.hex() for k in keys]
+            for actor_id, keys in project.ledger._public_keys.items()
         },
         "ledger_events": project.ledger.events,
         "ledger_valid_at_export": project.verify() == [],
@@ -184,9 +184,13 @@ def verify_evidence_bundle(bundle: dict[str, Any]) -> list[str]:
         return problems
     ledger = Ledger(bundle.get("project_id", ""))
     keys_ok = True
-    for actor_id, key_hex in actor_keys.items():
+    for actor_id, key_value in actor_keys.items():
+        # New bundles carry a list of keys per actor (password-change
+        # history); old bundles carry a single key string.
+        hexes = [key_value] if isinstance(key_value, str) else key_value
         try:
-            ledger.register_actor(actor_id, bytes.fromhex(key_hex))
+            for key_hex in hexes:
+                ledger.register_actor(actor_id, bytes.fromhex(key_hex))
         except Exception:
             problems.append(f"actor public key unreadable for {actor_id}")
             keys_ok = False

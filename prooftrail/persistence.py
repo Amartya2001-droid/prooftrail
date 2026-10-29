@@ -50,6 +50,14 @@ def project_to_dict(project: Project) -> dict:
              "public_key": a.public_key.hex()}
             for a in project.collaborators.values()
         ],
+        # Every key the ledger knows, including keys of removed
+        # collaborators and superseded keys from password changes:
+        # without them, old events cannot be re-verified on load.
+        # Files written before this field default to the current
+        # collaborator keys, which was complete for their era.
+        "key_history": {actor_id: [k.hex() for k in keys]
+                        for actor_id, keys
+                        in project.ledger._public_keys.items()},
     }
 
 
@@ -66,6 +74,12 @@ def project_from_dict(data: dict) -> Project:
                       bytes.fromhex(collab["public_key"]))
         project.collaborators[actor.actor_id] = actor
         ledger.register_actor(actor.actor_id, actor.public_key)
+    # Restore the full key history, including actors who are no longer
+    # collaborators: their past events still need their old keys.
+    # Files without this field keep the collaborator keys above.
+    for actor_id, keys in data.get("key_history", {}).items():
+        for key_hex in keys:
+            ledger.register_actor(actor_id, bytes.fromhex(key_hex))
     # States written before creator tracking default to the first
     # collaborator, who was the creator by construction.
     project.creator_id = data.get("creator_id") or (

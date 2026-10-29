@@ -29,15 +29,25 @@ def event_hash(event: dict) -> str:
 
 
 class Ledger:
-    """An append-only chain of signed events for one project."""
+    """An append-only chain of signed events for one project.
+
+    Each actor has a *history* of keys, not one key: changing a
+    password derives a new signing key, and events signed under the
+    old key must still verify. register_actor appends new keys;
+    verify tries each known key for the actor."""
 
     def __init__(self, project_id: str) -> None:
         self.project_id = project_id
         self.events: list[dict] = []
-        self._public_keys: dict[str, bytes] = {}
+        self._public_keys: dict[str, list[bytes]] = {}
 
     def register_actor(self, actor_id: str, public_key: bytes) -> None:
-        self._public_keys[actor_id] = public_key
+        """Record a public key for an actor, keeping earlier keys.
+        Re-registering a key already on file is a no-op, so reloading
+        persisted state never duplicates history."""
+        keys = self._public_keys.setdefault(actor_id, [])
+        if public_key not in keys:
+            keys.append(public_key)
 
     def append(
         self,
@@ -50,9 +60,10 @@ class Ledger:
         payload: dict | None = None,
     ) -> dict:
         """Append a signed event. Returns the event dict."""
-        public = self._public_keys.get(actor_id)
-        if public is None:
+        keys = self._public_keys.get(actor_id)
+        if not keys:
             raise ValueError(f"unknown actor: {actor_id}")
+        public = keys[-1]
         prev = self.events[-1]["hash"] if self.events else "0" * 64
         event: dict[str, Any] = {
             "project_id": self.project_id,
@@ -85,7 +96,9 @@ class Ledger:
             public = self._public_keys.get(event["actor"])
             if public is None:
                 problems.append(f"event {i}: unknown actor {event['actor']}")
-            elif not verify(public, canonical(event), bytes.fromhex(event["signature"])):
+            elif not any(verify(k, canonical(event),
+                                bytes.fromhex(event["signature"]))
+                         for k in public):
                 problems.append(f"event {i}: signature invalid")
             prev = stored
         return problems

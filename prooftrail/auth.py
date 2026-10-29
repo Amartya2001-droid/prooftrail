@@ -323,6 +323,16 @@ class SessionStore:
             self._sessions.pop(token, None)
         return revoked
 
+    def revoke_all_except(self, actor_id: str,
+                          keep_token: str) -> list[str]:
+        """Revoke every session for one actor except the given one
+        (password change: the session making the change survives)."""
+        revoked = [t for t, rec in self._sessions.items()
+                   if rec.actor_id == actor_id and t != keep_token]
+        for token in revoked:
+            self._sessions.pop(token, None)
+        return revoked
+
     def prune(self) -> None:
         now = self._now()
         expired = [t for t, rec in self._sessions.items()

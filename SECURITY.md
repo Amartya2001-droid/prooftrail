@@ -77,6 +77,14 @@ how, and what is deliberately *not* covered.
   removed account fails the collaborator check. Past history still
   verifies, because the ledger keeps the removed actor's key — removal
   ends access, never the record of what they signed.
+- **Password change without breaking history.** `POST
+  /api/users/password` requires the old password, revokes every other
+  session, and keeps the calling session working with the new derived
+  secret. Because the signing key is derived from the password, the
+  ledger keeps a history of each actor's keys: events signed before
+  the change still verify, new events use the new key, and the key
+  history persists across restarts — including keys of removed
+  collaborators, whose past events must stay verifiable.
 - **Session binding.** A session created over HTTP is bound to the
   client address and user agent it came from: presenting the token
   from a different address or agent revokes the token outright, so a
