@@ -204,6 +204,28 @@ class TestExportEndpoint(ImprovementTestCase):
         self.assertEqual(status, 403)
 
 
+class TestDuplicateApproval(ImprovementTestCase):
+    def test_same_actor_approving_twice_adds_one_event(self):
+        alice = self.user("alice-approve")
+        pid = self.project(alice, "Approval Project")
+        version = self.upload(alice, pid, "approve me", label="v1")
+        status, _ = call(self.conn, "POST",
+                         f"/api/projects/{pid}/approvals",
+                         {"content_id": version["content_id"]},
+                         token=alice)
+        self.assertEqual(status, 200)
+        status, _ = call(self.conn, "POST",
+                         f"/api/projects/{pid}/approvals",
+                         {"content_id": version["content_id"]},
+                         token=alice)
+        self.assertEqual(status, 200)
+        status, body = call(self.conn, "GET",
+                            f"/api/projects/{pid}/events", token=alice)
+        self.assertEqual(body["total"], 2)
+        status, verify = call(self.conn, "GET",
+                              f"/api/projects/{pid}/verify", token=alice)
+        self.assertTrue(verify["ledger_valid"])
+        self.assertEqual(verify["events"], 2)
 
 
 class TestExportClaimLimit(ImprovementTestCase):

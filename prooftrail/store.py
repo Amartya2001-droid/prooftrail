@@ -103,9 +103,22 @@ class Project:
         return version
 
     def approve(self, actor: Actor, version: Version, timestamp: str) -> dict:
-        """Record a client/collaborator approval of a version."""
+        """Record a client/collaborator approval of a version.
+
+        Approval is binary, so a second approval of the same
+        version by the same actor is idempotent: it returns the
+        original approval event instead of appending a second
+        signed event for the same fact, which would inflate the
+        event count and the approval evidence. A different actor
+        approving the same version still adds their own event.
+        """
         if actor.actor_id not in self.collaborators:
             raise ValueError(f"{actor.actor_id} is not a collaborator")
+        for event in self.ledger.events:
+            if (event["type"] == "approval"
+                    and event["actor"] == actor.actor_id
+                    and event.get("content_id") == version.content_id):
+                return event
         return self.ledger.append(
             "approval", actor.actor_id, actor.secret_key,
             content_id=version.content_id, timestamp=timestamp,
