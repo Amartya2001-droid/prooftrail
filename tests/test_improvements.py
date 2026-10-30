@@ -95,6 +95,18 @@ class TestListProjects(ImprovementTestCase):
         self.assertEqual(body["projects"][0]["versions"], 0)
 
 
+class TestListProjectsOrder(ImprovementTestCase):
+    def test_lists_projects_newest_first(self):
+        alice = self.user("alice-order")
+        first = self.project(alice, "First Project")
+        second = self.project(alice, "Second Project")
+        third = self.project(alice, "Third Project")
+        status, body = call(self.conn, "GET", "/api/projects",
+                            token=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [p["project_id"] for p in body["projects"]],
+            [third, second, first])
 
 
 class TestVersionMetadata(ImprovementTestCase):

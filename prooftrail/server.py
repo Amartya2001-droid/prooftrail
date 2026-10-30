@@ -702,9 +702,13 @@ class ProofTrailApp:
             raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
+            # Projects are stored in creation order, so reversing
+            # that order is newest first. Sorting by project_id
+            # would not be: ids are random, so that order was
+            # arbitrary despite the docstring promising newest first.
             mine = [p for p in self.projects.values()
                     if actor.actor_id in p.collaborators]
-            mine.sort(key=lambda p: p.project_id, reverse=True)
+            mine.reverse()
             page = mine[offset:offset + limit]
             return {"projects": [
                 {"project_id": p.project_id, "title": p.title,
