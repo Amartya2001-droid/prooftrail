@@ -61,11 +61,64 @@ class ProofTrailClient:
                              {"username": username, "name": name,
                               "password": password})
 
-    def login(self, username: str, password: str) -> str:
-        body = self._request("POST", "/api/sessions",
-                             {"username": username, "password": password})
-        self.token = body["token"]
+    def login(self, username: str, password: str,
+              totp_code: str | None = None,
+              recovery_code: str | None = None) -> str:
+        """Log in. Returns the session token, or, when TOTP is
+        enabled and no second factor was supplied, the pending
+        token to complete with :meth:`totp_verify`."""
+        body: dict = {"username": username, "password": password}
+        if totp_code is not None:
+            body["totp_code"] = totp_code
+        if recovery_code is not None:
+            body["recovery_code"] = recovery_code
+        result = self._request("POST", "/api/sessions", body)
+        if "token" in result:
+            self.token = result["token"]
+            return self.token
+        self.token = None
+        return result["pending_token"]
+
+    def totp_verify(self, pending_token: str, code: str | None = None,
+                    recovery_code: str | None = None) -> str:
+        body: dict = {"pending_token": pending_token}
+        if code is not None:
+            body["code"] = code
+        if recovery_code is not None:
+            body["recovery_code"] = recovery_code
+        result = self._request("POST", "/api/sessions/totp", body)
+        self.token = result["token"]
         return self.token
+
+    def change_password(self, old_password: str,
+                        new_password: str) -> dict:
+        return self._request("POST", "/api/users/password",
+                             {"old_password": old_password,
+                              "new_password": new_password})
+
+    def totp_setup(self) -> dict:
+        return self._request("POST", "/api/users/totp/setup", {})
+
+    def totp_confirm(self, code: str) -> dict:
+        return self._request("POST", "/api/users/totp/confirm",
+                             {"code": code})
+
+    def totp_disable(self, password: str) -> dict:
+        return self._request("POST", "/api/users/totp/disable",
+                             {"password": password})
+
+    def sessions(self) -> dict:
+        return self._request("GET", "/api/sessions")
+
+    def revoke_session(self, session_id: str) -> dict:
+        return self._request("POST", "/api/sessions/revoke-one",
+                             {"session_id": session_id})
+
+    def audit(self) -> dict:
+        return self._request("GET", "/api/sessions/audit")
+
+    def openapi(self) -> dict:
+        return self._request("GET", "/api/openapi.json")
 
     def logout(self) -> dict:
         body = self._request("POST", "/api/sessions/revoke")
@@ -87,6 +140,11 @@ class ProofTrailClient:
     def add_collaborator(self, project_id: str, username: str) -> dict:
         return self._request(
             "POST", f"/api/projects/{project_id}/collaborators",
+            {"username": username})
+
+    def remove_collaborator(self, project_id: str, username: str) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/collaborators/remove",
             {"username": username})
 
     def upload(self, project_id: str, data: bytes, label: str = "",

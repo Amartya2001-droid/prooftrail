@@ -2,9 +2,11 @@
 
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
+from prooftrail.auth import totp_code
 from prooftrail.client import ProofTrailClient, ProofTrailError
 from prooftrail.server import make_server
 
@@ -49,6 +51,66 @@ class TestClient(unittest.TestCase):
         with self.assertRaises(ProofTrailError) as ctx:
             client.list_projects()
         self.assertEqual(ctx.exception.status, 401)
+
+    def test_newer_auth_and_session_endpoints_through_client(self):
+        client = ProofTrailClient(f"http://127.0.0.1:{self.port}")
+        client.register("bob-client", "Bob", "sunset-river-42")
+        client.login("bob-client", "sunset-river-42")
+        second = ProofTrailClient(f"http://127.0.0.1:{self.port}")
+        second.login("bob-client", "sunset-river-42")
+
+        sessions = client.sessions()["sessions"]
+        self.assertEqual(len(sessions), 2)
+        current = [s for s in sessions if s["current"]]
+        self.assertEqual(len(current), 1)
+        other = [s for s in sessions if not s["current"]][0]
+        self.assertEqual(client.revoke_session(other["session_id"]),
+                         {"revoked": True})
+        with self.assertRaises(ProofTrailError) as ctx:
+            second.list_projects()
+        self.assertEqual(ctx.exception.status, 401)
+        audit_kinds = [e["event"] for e in client.audit()["events"]]
+        self.assertIn("login", audit_kinds)
+        self.assertIn("session_revoked", audit_kinds)
+
+        project = client.create_project("Bob Project")
+        pid = project["project_id"]
+        client.register("carol-client", "Carol", "sunset-river-42")
+        client.add_collaborator(pid, "carol-client")
+        removed = client.remove_collaborator(pid, "carol-client")
+        self.assertEqual(removed["removed"], "carol-client")
+        self.assertEqual(removed["project_id"], pid)
+
+        self.assertEqual(client.change_password(
+            "sunset-river-42", "moonlit-lake-99"), {"changed": True})
+        with self.assertRaises(ProofTrailError):
+            client.login("bob-client", "sunset-river-42")
+        client.login("bob-client", "moonlit-lake-99")
+
+        setup = client.totp_setup()
+        code = totp_code(setup["secret"], time.time())
+        confirmed = client.totp_confirm(code)
+        self.assertTrue(confirmed["enabled"])
+        self.assertEqual(len(confirmed["recovery_codes"]), 10)
+        pending = client.login("bob-client", "moonlit-lake-99")
+        self.assertIsNone(client.token)
+        # The confirm step's code cannot be reused (reuse within a
+        # step is rejected), so verify with the next step's code.
+        # A fixed +35 seconds could land two steps ahead when the
+        # confirm happened near a step boundary, so compute the
+        # first second of the next step explicitly: the server
+        # accepts it within one step of clock skew, and it is
+        # never the confirm step.
+        now = time.time()
+        next_step_start = (int(now // 30) + 1) * 30
+        code = totp_code(setup["secret"], next_step_start + 1)
+        client.totp_verify(pending, code=code)
+        self.assertIsNotNone(client.token)
+        self.assertTrue(client.totp_disable("moonlit-lake-99")["disabled"])
+
+        spec = client.openapi()
+        self.assertIn("/api/sessions/revoke-one", spec["paths"])
+        self.assertIn("/api/users/totp/confirm", spec["paths"])
 
 
 if __name__ == "__main__":
