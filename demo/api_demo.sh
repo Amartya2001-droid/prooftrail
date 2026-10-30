@@ -40,3 +40,18 @@ curl -s "$BASE/api/projects/$PROJECT/versions" \
   -H "Authorization: Bearer $TOKEN" | jq .
 curl -s "$BASE/api/projects/$PROJECT/verify" \
   -H "Authorization: Bearer $TOKEN" | jq '{ledger_valid, events}'
+
+# Newer endpoints, end to end: approve the latest version, list the
+# caller's sessions, fetch the auth audit trail, and export a bundle.
+LATEST=$(curl -s "$BASE/api/projects/$PROJECT/versions" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.versions[-1].content_id')
+curl -s -X POST "$BASE/api/projects/$PROJECT/approvals" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"content_id\":\"$LATEST\"}"
+echo
+curl -s "$BASE/api/sessions" \
+  -H "Authorization: Bearer $TOKEN" | jq '{sessions: [.sessions[] | {current}]}'
+curl -s "$BASE/api/sessions/audit" \
+  -H "Authorization: Bearer $TOKEN" | jq '{events: [.events[] | .event]}'
+curl -s "$BASE/api/projects/$PROJECT/export?claim=demo%20dispute" \
+  -H "Authorization: Bearer $TOKEN" | jq '{claim, ledger_valid_at_export}'
