@@ -1014,6 +1014,16 @@ def make_handler(app: ProofTrailApp):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
+            # The API returns JSON, never a page to frame, and its
+            # responses must not leak a referrer to a third party.
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            if (status == 429
+                    and payload.get("error")
+                    == "too many requests from this address"):
+                # The general throttle window is 60 seconds, so a
+                # well-behaved client can wait exactly that long.
+                self.send_header("Retry-After", "60")
             if status == 413:
                 # The client may still be sending the oversized body;
                 # close so it is not parsed as a follow-up request.

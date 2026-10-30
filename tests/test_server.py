@@ -138,6 +138,48 @@ class TestServer(unittest.TestCase):
         self.assertEqual(status, 200)
         conn.close()
 
+    def test_rate_limit_response_carries_retry_after(self):
+        # Seed the general throttle directly, so the test does not
+        # need 301 real requests: 301 recent requests from this
+        # address already exceed the 300-per-minute limit.
+        import tempfile as _tempfile
+        import threading as _threading
+        import time as _time
+        from pathlib import Path as _Path
+        tmp = _tempfile.TemporaryDirectory()
+        server, app = make_server(
+            "127.0.0.1", 0, str(_Path(tmp.name) / "state.json"))
+        port = server.server_address[1]
+        thread = _threading.Thread(target=server.serve_forever,
+                                   daemon=True)
+        thread.start()
+        try:
+            app._request_counts["127.0.0.1"] = [_time.time()] * 301
+            conn = http.client.HTTPConnection("127.0.0.1", port,
+                                              timeout=30)
+            conn.request("GET", "/api/health")
+            resp = conn.getresponse()
+            resp.read()
+            self.assertEqual(resp.status, 429)
+            self.assertEqual(resp.getheader("Retry-After"), "60")
+            conn.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            tmp.cleanup()
+
+    def test_security_headers_on_every_response(self):
+        conn = self.conn()
+        conn.request("GET", "/api/health")
+        resp = conn.getresponse()
+        resp.read()
+        self.assertEqual(resp.getheader("X-Content-Type-Options"),
+                         "nosniff")
+        self.assertEqual(resp.getheader("Cache-Control"), "no-store")
+        self.assertEqual(resp.getheader("X-Frame-Options"), "DENY")
+        self.assertEqual(resp.getheader("Referrer-Policy"), "no-referrer")
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
