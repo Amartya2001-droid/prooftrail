@@ -117,11 +117,22 @@ how, and what is deliberately *not* covered.
   independent approval.
 - **General API throttle.** Beyond the registration and login
   limits, every request counts toward 300 per minute per client
-  address, so one address cannot flood the API.
+  address, so one address cannot flood the API. A response to
+  that throttle carries `Retry-After: 60`, the window length, so
+  a well-behaved client waits instead of retrying immediately.
 - **Information leakage.** 500 responses are a generic "internal error"
   (details go to server stderr only). The verification page exposes
   hashes, never document content. Responses carry `nosniff` and
-  `no-store` headers.
+  `no-store` headers, plus `X-Frame-Options: DENY` (the API is
+  never a page to frame) and `Referrer-Policy: no-referrer`.
+- **Duplicate approvals do not inflate evidence.** Approving the
+  same version twice by the same actor returns the original
+  approval event instead of appending a second one, so the event
+  count and the approval evidence cannot be padded by repetition.
+  A different actor's approval is still their own event.
+- **Dispute-bundle claims are bounded.** The export claim is at
+  most 500 characters, so a bundle cannot be bloated with an
+  unbounded claim string.
 - **Concurrency corruption.** All mutations run under one lock, so
   concurrent uploads, registrations and saves cannot interleave.
 - **Signature malleability.** Non-canonically encoded Ed25519 points are

@@ -95,16 +95,26 @@ client lives in `prooftrail/client.py`.
 - `POST /api/sessions` — log in, receive a token
 - `POST /api/sessions/revoke` — log out
 - `POST /api/sessions/revoke-all` — log out everywhere (lost-device case)
+- `GET /api/sessions` — list my sessions, with the current one flagged
+- `POST /api/sessions/revoke-one` — revoke one session by id
+- `GET /api/sessions/audit` — my authentication audit trail
+- `POST /api/users/password` — change password, other sessions revoked
+- `POST /api/users/totp/setup` — start optional TOTP enrollment
+- `POST /api/users/totp/confirm` — confirm TOTP enrollment
+- `POST /api/users/totp/disable` — disable TOTP (password required)
+- `POST /api/sessions/totp` — complete a pending TOTP login
+- `GET /api/openapi.json` — machine-readable API spec
 - `POST /api/projects` — create a project
-- `GET /api/projects` — list the projects you collaborate on
+- `GET /api/projects` — list the projects you collaborate on, newest first
 - `POST /api/projects/<id>/collaborators` — add a collaborator
+- `POST /api/projects/<id>/collaborators/remove` — remove a collaborator (creator only)
 - `POST /api/projects/<id>/uploads` — upload a version
   (`{content_base64, label?, filename?, content_type?}`); the server
   hashes the content, links it to its parent, and signs a ledger
   event. Re-uploading bytes identical to the latest version returns
   that version with `"duplicate": true` and adds no ledger event.
   Versions record filename, content type and byte size.
-- `POST /api/projects/<id>/approvals` — approve a version
+- `POST /api/projects/<id>/approvals` — approve a version (approving the same version twice by the same actor adds no second event)
 - `POST /api/projects/<id>/declarations` — declare AI use for a version
   (`{content_id, tool, prompt_summary?, sentence_indices?}`); the
   declaration is a signed ledger event, so it cannot be edited or
@@ -122,7 +132,7 @@ client lives in `prooftrail/client.py`.
   newest first, paged (limit 1–200)
 - `GET /api/projects/<id>/verify` — verification page data (hashes only)
 - `GET /api/projects/<id>/export?claim=` — signed dispute evidence
-  bundle, signed with the exporter's own key, carrying the versions,
+  bundle (claim at most 500 characters), signed with the exporter's own key, carrying the versions,
   diffs, AI declarations, contribution coverage, actor public keys
   and export timestamp so a third party can re-verify it standalone
 - `POST /api/bundles/verify` — verify a signed bundle, no auth: a
