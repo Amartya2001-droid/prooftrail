@@ -971,6 +971,7 @@ class ProofTrailApp:
         """A signed evidence bundle for the whole project, downloadable
         over the API. Signed with the caller's own key, so the bundle
         is attributable to the person who exported it."""
+        _validate_text("claim", claim, 500)
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)

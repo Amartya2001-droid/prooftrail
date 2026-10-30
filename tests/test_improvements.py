@@ -95,6 +95,8 @@ class TestListProjects(ImprovementTestCase):
         self.assertEqual(body["projects"][0]["versions"], 0)
 
 
+
+
 class TestVersionMetadata(ImprovementTestCase):
     def test_filename_type_and_size_round_trip(self):
         alice = self.user("alice-meta")
@@ -188,6 +190,26 @@ class TestExportEndpoint(ImprovementTestCase):
         status, _ = call(self.conn, "GET", f"/api/projects/{pid}/export",
                          token=bob)
         self.assertEqual(status, 403)
+
+
+
+
+class TestExportClaimLimit(ImprovementTestCase):
+    def test_export_claim_length_limited(self):
+        alice = self.user("alice-claim")
+        pid = self.project(alice, "Claim Project")
+        self.upload(alice, pid, "claim me", label="v1")
+        status, _ = call(
+            self.conn, "GET",
+            f"/api/projects/{pid}/export?claim={'x' * 501}",
+            token=alice)
+        self.assertEqual(status, 400)
+        status, bundle = call(
+            self.conn, "GET",
+            f"/api/projects/{pid}/export?claim={'x' * 500}",
+            token=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(bundle["claim"], "x" * 500)
 
 
 class TestValidation(ImprovementTestCase):
