@@ -114,8 +114,9 @@ class ProofTrailClient:
         return self._request("POST", "/api/sessions/revoke-one",
                              {"session_id": session_id})
 
-    def audit(self) -> dict:
-        return self._request("GET", "/api/sessions/audit")
+    def audit(self, limit: int = 50, offset: int = 0) -> dict:
+        return self._request(
+            "GET", f"/api/sessions/audit?limit={limit}&offset={offset}")
 
     def openapi(self) -> dict:
         return self._request("GET", "/api/openapi.json")

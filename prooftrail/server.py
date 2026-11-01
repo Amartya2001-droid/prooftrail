@@ -642,11 +642,18 @@ class ProofTrailApp:
             self._save()
             return {"changed": True}
 
-    def audit_for(self, token: str | None) -> dict:
-        """The caller's own authentication events, newest first."""
+    def audit_for(self, token: str | None,
+                  limit: int = 50, offset: int = 0) -> dict:
+        """The caller's own authentication events, newest first, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
-            return {"events": self.audit.events_for(actor.actor_id)}
+            events = self.audit.events_for(actor.actor_id)
+            return {"events": events[offset:offset + limit],
+                    "total": len(events), "limit": limit, "offset": offset}
 
     def sessions_for(self, token: str | None) -> dict:
         """The caller's own sessions, with the calling one flagged.
@@ -1099,7 +1106,7 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.change_password(
                     token, body["old_password"], body["new_password"])
             if method == "GET" and parts == ["api", "sessions", "audit"]:
-                return 200, app.audit_for(token)
+                return 200, app.audit_for(token, *_parse_paging(query))
             if method == "GET" and parts == ["api", "sessions"]:
                 return 200, app.sessions_for(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-one"]:

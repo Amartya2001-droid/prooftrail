@@ -47,6 +47,31 @@ class TestAuditLog(unittest.TestCase):
             app.audit_for(None)
         self.assertEqual(getattr(ctx.exception, "status", None), 401)
 
+    def test_audit_pages_newest_first(self):
+        app = ProofTrailApp()
+        app.register("designer", "Designer", "sunset-river-42")
+        token = app.login("designer", "sunset-river-42")["token"]
+        app.logout(token)
+        token2 = app.login("designer", "sunset-river-42")["token"]
+        first = app.audit_for(token2, limit=2, offset=0)
+        self.assertEqual(first["total"], 4)
+        self.assertEqual([e["event"] for e in first["events"]],
+                         ["login", "logout"])
+        second = app.audit_for(token2, limit=2, offset=2)
+        self.assertEqual([e["event"] for e in second["events"]],
+                         ["login", "register"])
+
+    def test_audit_rejects_bad_paging(self):
+        app = ProofTrailApp()
+        app.register("designer", "Designer", "sunset-river-42")
+        token = app.login("designer", "sunset-river-42")["token"]
+        with self.assertRaises(Exception) as ctx:
+            app.audit_for(token, limit=0)
+        self.assertEqual(getattr(ctx.exception, "status", None), 400)
+        with self.assertRaises(Exception) as ctx:
+            app.audit_for(token, offset=-1)
+        self.assertEqual(getattr(ctx.exception, "status", None), 400)
+
     def test_log_is_capped(self):
         log = AuditLog(max_events=3)
         for i in range(5):
