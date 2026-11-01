@@ -111,7 +111,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Create a project, requires Bearer token"},
             "get": {"summary": "List my projects, requires Bearer token"}},
         "/api/projects/{id}/collaborators": {
-            "post": {"summary": "Add a collaborator"}},
+            "post": {"summary": "Add a collaborator"},
+            "get": {"summary": "List collaborators, creator flagged"}},
         "/api/projects/{id}/collaborators/remove": {
             "post": {"summary": "Remove a collaborator (creator only)"}},
         "/api/projects/{id}/uploads": {
@@ -724,6 +725,23 @@ class ProofTrailApp:
                 for p in page
             ], "total": len(mine), "limit": limit, "offset": offset}
 
+    def collaborators_for(self, token: str | None,
+                          project_id: str) -> dict:
+        """Who can see this project, with the creator flagged.
+
+        Any collaborator may list them: knowing who else can read a
+        project's history is part of trusting it, and the list holds
+        names only, never keys or tokens.
+        """
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            return {"collaborators": [
+                {"actor_id": c.actor_id, "name": c.name,
+                 "is_creator": c.actor_id == project.creator_id}
+                for c in project.collaborators.values()
+            ]}
+
     def add_collaborator(self, token: str | None, project_id: str,
                          username: str) -> dict:
         with self._lock:
@@ -1115,6 +1133,10 @@ def make_handler(app: ProofTrailApp):
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:
                 return 200, app.list_projects(token, *_parse_paging(query))
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "collaborators"):
+                return 200, app.collaborators_for(token, parts[2])
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "collaborators"):

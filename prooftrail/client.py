@@ -143,6 +143,10 @@ class ProofTrailClient:
             "POST", f"/api/projects/{project_id}/collaborators",
             {"username": username})
 
+    def collaborators(self, project_id: str) -> dict:
+        return self._request(
+            "GET", f"/api/projects/{project_id}/collaborators")
+
     def remove_collaborator(self, project_id: str, username: str) -> dict:
         return self._request(
             "POST", f"/api/projects/{project_id}/collaborators/remove",
