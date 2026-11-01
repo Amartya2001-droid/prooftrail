@@ -174,8 +174,12 @@ class ProofTrailClient:
              "prompt_summary": prompt_summary,
              "sentence_indices": sentence_indices or []})
 
-    def declarations(self, project_id: str) -> dict:
-        return self._request("GET", f"/api/projects/{project_id}/declarations")
+    def declarations(self, project_id: str, limit: int = 50,
+                     offset: int = 0) -> dict:
+        return self._request(
+            "GET",
+            f"/api/projects/{project_id}/declarations"
+            f"?limit={limit}&offset={offset}")
 
     def contributions(self, project_id: str) -> dict:
         return self._request(

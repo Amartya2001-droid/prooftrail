@@ -86,6 +86,25 @@ class TestDeclarationsApi(unittest.TestCase):
         self.assertEqual(len(decls["declarations"]), 1)
         self.assertEqual(decls["declarations"][0]["version_label"], "v2")
 
+        # A second declaration, then paging over both in declaration order.
+        status, _ = call(conn, "POST", f"/api/projects/{pid}/declarations",
+                         {"content_id": v1["content_id"], "tool": "Claude",
+                          "sentence_indices": [0]}, token=token)
+        self.assertEqual(status, 201)
+        status, page = call(
+            conn, "GET",
+            f"/api/projects/{pid}/declarations?limit=1&offset=0", token=token)
+        self.assertEqual(page["total"], 2)
+        self.assertEqual(page["declarations"][0]["tool"], "ChatGPT")
+        status, page = call(
+            conn, "GET",
+            f"/api/projects/{pid}/declarations?limit=1&offset=1", token=token)
+        self.assertEqual(page["declarations"][0]["tool"], "Claude")
+        status, _ = call(
+            conn, "GET",
+            f"/api/projects/{pid}/declarations?limit=0", token=token)
+        self.assertEqual(status, 400)
+
         # The contribution map keeps one segment per sentence per version:
         # v1's sentence, then v2 carrying it forward plus the declared one.
         status, cmap = call(conn, "GET", f"/api/projects/{pid}/contributions",

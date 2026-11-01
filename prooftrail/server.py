@@ -121,7 +121,7 @@ OPENAPI_SPEC = {
             "post": {"summary": "Approve a version"}},
         "/api/projects/{id}/declarations": {
             "post": {"summary": "Declare AI use for a version"},
-            "get": {"summary": "List AI-use declarations"}},
+            "get": {"summary": "List AI-use declarations, paged"}},
         "/api/projects/{id}/contributions": {
             "get": {"summary": "Human Contribution Map: per-sentence sources"}},
         "/api/projects/{id}/diff": {
@@ -866,16 +866,24 @@ class ProofTrailApp:
             self._save()
             return {"declared": content_id, "tool": tool}
 
-    def declarations(self, token: str | None, project_id: str) -> dict:
+    def declarations(self, token: str | None, project_id: str,
+                     limit: int = 50, offset: int = 0) -> dict:
+        """AI-use declarations for a project, in declaration order, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
+            all_decls = project.declarations()
+            page = all_decls[offset:offset + limit]
             return {"declarations": [
                 {"version_label": d.version_label, "actor_id": d.actor_id,
                  "tool": d.tool, "prompt_summary": d.prompt_summary,
                  "sentence_indices": d.sentence_indices}
-                for d in project.declarations()
-            ]}
+                for d in page
+            ], "total": len(all_decls), "limit": limit, "offset": offset}
 
     def contributions(self, token: str | None, project_id: str) -> dict:
         """Human Contribution Map: every sentence, its source, and the
@@ -1170,7 +1178,8 @@ def make_handler(app: ProofTrailApp):
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "declarations"):
-                return 200, app.declarations(token, parts[2])
+                return 200, app.declarations(token, parts[2],
+                                             *_parse_paging(query))
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "contributions"):
