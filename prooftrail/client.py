@@ -181,9 +181,12 @@ class ProofTrailClient:
             f"/api/projects/{project_id}/declarations"
             f"?limit={limit}&offset={offset}")
 
-    def contributions(self, project_id: str) -> dict:
+    def contributions(self, project_id: str, limit: int = 50,
+                      offset: int = 0) -> dict:
         return self._request(
-            "GET", f"/api/projects/{project_id}/contributions")
+            "GET",
+            f"/api/projects/{project_id}/contributions"
+            f"?limit={limit}&offset={offset}")
 
     def diff(self, project_id: str, from_id: str | None = None,
              to_id: str | None = None) -> dict:

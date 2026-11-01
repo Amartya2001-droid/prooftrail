@@ -123,7 +123,7 @@ OPENAPI_SPEC = {
             "post": {"summary": "Declare AI use for a version"},
             "get": {"summary": "List AI-use declarations, paged"}},
         "/api/projects/{id}/contributions": {
-            "get": {"summary": "Human Contribution Map: per-sentence sources"}},
+            "get": {"summary": "Human Contribution Map: per-sentence sources, paged"}},
         "/api/projects/{id}/diff": {
             "get": {"summary": "Semantic diff between two versions"}},
         "/api/projects/{id}/versions": {
@@ -885,19 +885,29 @@ class ProofTrailApp:
                 for d in page
             ], "total": len(all_decls), "limit": limit, "offset": offset}
 
-    def contributions(self, token: str | None, project_id: str) -> dict:
+    def contributions(self, token: str | None, project_id: str,
+                      limit: int = 50, offset: int = 0) -> dict:
         """Human Contribution Map: every sentence, its source, and the
-        share of each source across the project."""
+        share of each source across the project. Segments are paged;
+        coverage is always computed over the whole project, not the
+        page, so a page never changes the reported shares."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
         with self._lock:
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
             cmap = self._contribution_map(project)
+            page = cmap.segments[offset:offset + limit]
             return {
                 "segments": [
                     {"text": s.text, "source": s.source,
                      "first_seen_version": s.first_seen_version}
-                    for s in cmap.segments
+                    for s in page
                 ],
+                "total_segments": len(cmap.segments),
+                "limit": limit, "offset": offset,
                 "coverage_pct": cmap.coverage(),
                 "caveat": cmap.caveat,
             }
@@ -1183,7 +1193,8 @@ def make_handler(app: ProofTrailApp):
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "contributions"):
-                return 200, app.contributions(token, parts[2])
+                return 200, app.contributions(token, parts[2],
+                                              *_parse_paging(query))
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "diff"):

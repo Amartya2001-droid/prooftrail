@@ -115,6 +115,25 @@ class TestDeclarationsApi(unittest.TestCase):
         self.assertGreater(cmap["coverage_pct"]["ai-assisted"], 0)
         self.assertIn("not proof of authorship", cmap["caveat"])
 
+        # Segments page, but coverage stays whole-project on every page.
+        status, page = call(
+            conn, "GET",
+            f"/api/projects/{pid}/contributions?limit=1&offset=0",
+            token=token)
+        self.assertEqual(page["total_segments"], 3)
+        self.assertEqual(len(page["segments"]), 1)
+        self.assertEqual(page["segments"][0]["source"], "human")
+        self.assertGreater(page["coverage_pct"]["ai-assisted"], 0)
+        status, page = call(
+            conn, "GET",
+            f"/api/projects/{pid}/contributions?limit=1&offset=2",
+            token=token)
+        self.assertEqual(page["segments"][0]["source"], "ai-assisted")
+        status, _ = call(
+            conn, "GET",
+            f"/api/projects/{pid}/contributions?limit=0", token=token)
+        self.assertEqual(status, 400)
+
         status, page = call(conn, "GET", f"/api/projects/{pid}/verify",
                             token=token)
         self.assertGreater(
