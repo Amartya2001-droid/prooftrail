@@ -159,6 +159,8 @@ async function loadSection(section) {
     await loadVersions();
   } else if (section === "verify") {
     await loadVerify();
+  } else if (section === "diff") {
+    await loadDiffOptions();
   }
 }
 
@@ -175,6 +177,59 @@ function renderList(elementId, items, render) {
     entry.textContent = "None.";
     list.appendChild(entry);
   }
+}
+
+function fillVersionSelect(selectId, versions) {
+  const select = $(selectId);
+  select.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "(latest vs parent)";
+  select.appendChild(blank);
+  for (const version of versions) {
+    const option = document.createElement("option");
+    option.value = version.content_id;
+    option.textContent = (version.label || version.content_id)
+      + " — " + version.timestamp;
+    select.appendChild(option);
+  }
+}
+
+async function loadDiffOptions() {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const data = await api("/api/projects/" + currentProjectId + "/versions");
+  fillVersionSelect("diff-from", data.versions);
+  fillVersionSelect("diff-to", data.versions);
+}
+
+function initDiff() {
+  $("button-diff").addEventListener("click", async () => {
+    if (!currentProjectId) {
+      setStatus("Pick a project on the Projects tab first.");
+      return;
+    }
+    try {
+      const params = new URLSearchParams();
+      if ($("diff-from").value) {
+        params.set("from", $("diff-from").value);
+      }
+      if ($("diff-to").value) {
+        params.set("to", $("diff-to").value);
+      }
+      const query = params.toString();
+      const data = await api("/api/projects/" + currentProjectId + "/diff"
+        + (query ? "?" + query : ""));
+      $("diff-summary").textContent = data.summary;
+      renderList("diff-added", data.added, (line) => line);
+      renderList("diff-removed", data.removed, (line) => line);
+      setStatus("Diff shown.");
+    } catch (error) {
+      showError(error);
+    }
+  });
 }
 
 async function loadVerify() {
@@ -342,6 +397,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAuth();
   initProjects();
   initVersions();
+  initDiff();
   refreshAuthState();
   showSection("auth");
 });
