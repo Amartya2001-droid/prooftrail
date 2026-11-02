@@ -148,10 +148,60 @@ function initAuth() {
   });
 }
 
+// The project every other tab acts on. It is set only by picking a
+// project from the list, never guessed from a URL or a stored id.
+let currentProjectId = null;
+
+async function loadSection(section) {
+  if (section === "projects") {
+    await loadProjects();
+  }
+}
+
+async function loadProjects() {
+  const data = await api("/api/projects?limit=50&offset=0");
+  const list = $("project-list");
+  list.innerHTML = "";
+  for (const project of data.projects) {
+    const item = document.createElement("li");
+    item.textContent = project.title + " (" + project.versions
+      + " versions, " + project.collaborators.length + " collaborators) ";
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = "Select";
+    select.addEventListener("click", () => {
+      currentProjectId = project.project_id;
+      $("versions-project").textContent = "Selected: " + project.title;
+      showSection("versions");
+    });
+    item.appendChild(select);
+    list.appendChild(item);
+  }
+  if (data.projects.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No projects yet. Create one above.";
+    list.appendChild(item);
+  }
+}
+
+function initProjects() {
+  onSubmit("form-create-project", async () => {
+    const result = await api("/api/projects", {
+      method: "POST",
+      body: { title: $("project-title").value },
+    });
+    $("project-title").value = "";
+    setStatus("Project created.");
+    await loadProjects();
+    currentProjectId = result.project_id;
+  });
+}
+
 function initNav() {
   for (const section of SECTIONS) {
     $("nav-" + section).addEventListener("click", () => {
       showSection(section);
+      loadSection(section).catch(showError);
     });
   }
 }
@@ -159,6 +209,7 @@ function initNav() {
 document.addEventListener("DOMContentLoaded", () => {
   initNav();
   initAuth();
+  initProjects();
   refreshAuthState();
   showSection("auth");
 });
