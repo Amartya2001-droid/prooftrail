@@ -155,15 +155,60 @@ let currentProjectId = null;
 async function loadSection(section) {
   if (section === "projects") {
     await loadProjects();
+  } else if (section === "versions") {
+    await loadVersions();
+  } else if (section === "verify") {
+    await loadVerify();
   }
 }
 
-async function loadSection(section) {
-  if (section === "projects") {
-    await loadProjects();
-  } else if (section === "versions") {
-    await loadVersions();
+function renderList(elementId, items, render) {
+  const list = $(elementId);
+  list.innerHTML = "";
+  for (const item of items) {
+    const entry = document.createElement("li");
+    entry.textContent = render(item);
+    list.appendChild(entry);
   }
+  if (items.length === 0) {
+    const entry = document.createElement("li");
+    entry.textContent = "None.";
+    list.appendChild(entry);
+  }
+}
+
+async function loadVerify() {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const base = "/api/projects/" + currentProjectId;
+  const [page, people, recent] = await Promise.all([
+    api(base + "/verify"),
+    api(base + "/collaborators"),
+    api(base + "/events?limit=20&offset=0"),
+  ]);
+  $("verify-valid").textContent = page.ledger_valid
+    ? "Ledger valid: every version hash and signature checks out."
+    : "Ledger problems: " + page.ledger_problems.join("; ");
+  renderList("verify-chain", page.versions, (version) => {
+    let line = (version.label || version.content_id) + " — "
+      + version.content_id + " — by " + version.actor + " at "
+      + version.timestamp;
+    if (version.change) {
+      line += " — " + JSON.stringify(version.change);
+    }
+    return line;
+  });
+  renderList("verify-self-approvals", page.self_approvals, (entry) =>
+    (entry.approver || entry.actor || "?") + " approved own version "
+    + (entry.content_id || ""));
+  renderList("verify-contributors", people.collaborators, (person) =>
+    person.name + (person.is_creator ? " (creator)" : ""));
+  renderList("verify-events", recent.events, (event) =>
+    event.type + " — " + (event.actor || "?") + " — " + event.timestamp);
+  setStatus("Verification for " + page.title + " (" + recent.total
+    + " ledger events).");
 }
 
 async function loadVersions() {
