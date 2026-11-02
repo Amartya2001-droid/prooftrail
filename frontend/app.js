@@ -161,6 +161,8 @@ async function loadSection(section) {
     await loadVerify();
   } else if (section === "diff") {
     await loadDiffOptions();
+  } else if (section === "declarations") {
+    await loadDeclarations();
   }
 }
 
@@ -179,13 +181,15 @@ function renderList(elementId, items, render) {
   }
 }
 
-function fillVersionSelect(selectId, versions) {
+function fillVersionSelect(selectId, versions, includeBlank) {
   const select = $(selectId);
   select.innerHTML = "";
-  const blank = document.createElement("option");
-  blank.value = "";
-  blank.textContent = "(latest vs parent)";
-  select.appendChild(blank);
+  if (includeBlank !== false) {
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "(latest vs parent)";
+    select.appendChild(blank);
+  }
   for (const version of versions) {
     const option = document.createElement("option");
     option.value = version.content_id;
@@ -193,6 +197,52 @@ function fillVersionSelect(selectId, versions) {
       + " — " + version.timestamp;
     select.appendChild(option);
   }
+}
+
+async function loadDeclarations() {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const base = "/api/projects/" + currentProjectId;
+  const [versions, decls, cmap] = await Promise.all([
+    api(base + "/versions"),
+    api(base + "/declarations?limit=50&offset=0"),
+    api(base + "/contributions?limit=50&offset=0"),
+  ]);
+  fillVersionSelect("declare-version", versions.versions, false);
+  renderList("declaration-list", decls.declarations, (decl) =>
+    decl.version_label + " — " + decl.tool + " — by " + decl.actor_id
+    + (decl.prompt_summary ? " — " + decl.prompt_summary : ""));
+  const coverage = Object.entries(cmap.coverage_pct)
+    .map(([source, pct]) => source + ": " + pct + "%").join(", ");
+  $("contribution-coverage").textContent = "Coverage over "
+    + cmap.total_segments + " segments: " + coverage
+    + (cmap.caveat ? " (" + cmap.caveat + ")" : "");
+  renderList("contribution-segments", cmap.segments, (segment) =>
+    segment.source + " — first seen in " + segment.first_seen_version
+    + " — " + segment.text);
+}
+
+function initDeclarations() {
+  onSubmit("form-declare", async () => {
+    if (!currentProjectId) {
+      setStatus("Pick a project on the Projects tab first.");
+      return;
+    }
+    await api("/api/projects/" + currentProjectId + "/declarations", {
+      method: "POST",
+      body: {
+        content_id: $("declare-version").value,
+        tool: $("declare-tool").value,
+        prompt_summary: $("declare-summary").value,
+      },
+    });
+    $("declare-tool").value = "";
+    $("declare-summary").value = "";
+    setStatus("AI use declared.");
+    await loadDeclarations();
+  });
 }
 
 async function loadDiffOptions() {
@@ -398,6 +448,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initProjects();
   initVersions();
   initDiff();
+  initDeclarations();
   refreshAuthState();
   showSection("auth");
 });
