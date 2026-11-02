@@ -58,6 +58,22 @@ python3 -m unittest discover -s tests -v
 python3 demo/designer_scenario.py
 ```
 
+## Web UI
+
+The server serves a small web UI itself, no build step. Start it
+and open http://127.0.0.1:8000 in a browser:
+
+```sh
+python3 -m prooftrail.server --port 8000
+```
+
+The UI covers account sign-in (including second factor), projects,
+versions and approvals, the verification view (hashes only, never
+document content), the diff viewer, AI-use declarations with the
+contribution map, and evidence-bundle export with sessions and the
+authentication audit. The session token is kept in sessionStorage
+only, so closing the tab signs the browser out.
+
 ## Supabase backend (optional)
 
 The JSON file store is the default. To persist state in Supabase

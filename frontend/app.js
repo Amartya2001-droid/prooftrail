@@ -163,6 +163,8 @@ async function loadSection(section) {
     await loadDiffOptions();
   } else if (section === "declarations") {
     await loadDeclarations();
+  } else if (section === "export") {
+    await loadExportSection();
   }
 }
 
@@ -197,6 +199,45 @@ function fillVersionSelect(selectId, versions, includeBlank) {
       + " — " + version.timestamp;
     select.appendChild(option);
   }
+}
+
+async function loadExportSection() {
+  const [mine, trail] = await Promise.all([
+    api("/api/sessions"),
+    api("/api/sessions/audit?limit=50&offset=0"),
+  ]);
+  renderList("session-list", mine.sessions, (session) => {
+    let line = session.session_id + (session.current ? " (this session)" : "");
+    const extras = [];
+    if (session.ip_address) {
+      extras.push(session.ip_address);
+    }
+    if (session.user_agent) {
+      extras.push(session.user_agent);
+    }
+    if (extras.length) {
+      line += " — " + extras.join(" — ");
+    }
+    return line;
+  });
+  renderList("audit-list", trail.events, (event) =>
+    event.type + " — " + event.timestamp
+    + (event.detail ? " — " + event.detail : ""));
+}
+
+function initExport() {
+  onSubmit("form-export", async () => {
+    if (!currentProjectId) {
+      setStatus("Pick a project on the Projects tab first.");
+      return;
+    }
+    const claim = $("export-claim").value;
+    const query = claim ? "?claim=" + encodeURIComponent(claim) : "";
+    const bundle = await api(
+      "/api/projects/" + currentProjectId + "/export" + query);
+    $("export-output").textContent = JSON.stringify(bundle, null, 2);
+    setStatus("Evidence bundle built. Copy or save the JSON above.");
+  });
 }
 
 async function loadDeclarations() {
@@ -449,6 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initVersions();
   initDiff();
   initDeclarations();
+  initExport();
   refreshAuthState();
   showSection("auth");
 });
