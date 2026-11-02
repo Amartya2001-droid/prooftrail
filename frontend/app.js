@@ -158,6 +158,91 @@ async function loadSection(section) {
   }
 }
 
+async function loadSection(section) {
+  if (section === "projects") {
+    await loadProjects();
+  } else if (section === "versions") {
+    await loadVersions();
+  }
+}
+
+async function loadVersions() {
+  const list = $("version-list");
+  list.innerHTML = "";
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const data = await api("/api/projects/" + currentProjectId + "/versions");
+  for (const version of data.versions) {
+    const item = document.createElement("li");
+    item.textContent = (version.label || version.content_id) + " — "
+      + version.timestamp + " — " + version.content_id
+      + " (" + version.size + " bytes) ";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.textContent = "Approve";
+    approve.addEventListener("click", async () => {
+      try {
+        await api("/api/projects/" + currentProjectId + "/approvals", {
+          method: "POST",
+          body: { content_id: version.content_id },
+        });
+        setStatus("Version approved.");
+      } catch (error) {
+        showError(error);
+      }
+    });
+    item.appendChild(approve);
+    list.appendChild(item);
+  }
+  if (data.versions.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No versions yet. Upload one above.";
+    list.appendChild(item);
+  }
+}
+
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(
+      null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function initVersions() {
+  onSubmit("form-upload", async () => {
+    if (!currentProjectId) {
+      setStatus("Pick a project on the Projects tab first.");
+      return;
+    }
+    const file = $("upload-file").files[0];
+    if (!file) {
+      setStatus("Choose a file to upload.");
+      return;
+    }
+    const result = await api(
+      "/api/projects/" + currentProjectId + "/uploads", {
+        method: "POST",
+        body: {
+          content_base64: toBase64(await file.arrayBuffer()),
+          label: $("upload-label").value,
+          filename: file.name,
+          content_type: file.type || "application/octet-stream",
+        },
+      });
+    $("upload-label").value = "";
+    $("upload-file").value = "";
+    setStatus(result.duplicate
+      ? "Already the latest version: no duplicate was recorded."
+      : "Version uploaded.");
+    await loadVersions();
+  });
+}
+
 async function loadProjects() {
   const data = await api("/api/projects?limit=50&offset=0");
   const list = $("project-list");
@@ -173,6 +258,7 @@ async function loadProjects() {
       currentProjectId = project.project_id;
       $("versions-project").textContent = "Selected: " + project.title;
       showSection("versions");
+      loadVersions().catch(showError);
     });
     item.appendChild(select);
     list.appendChild(item);
@@ -210,6 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNav();
   initAuth();
   initProjects();
+  initVersions();
   refreshAuthState();
   showSection("auth");
 });
