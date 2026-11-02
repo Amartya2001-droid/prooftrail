@@ -1080,6 +1080,41 @@ def make_handler(app: ProofTrailApp):
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_file(self, body: bytes, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _serve_frontend(self, path: str) -> bool:
+            """Serve the web UI from frontend/. Only exact whitelisted
+            names are ever served, so no path can escape that directory,
+            and anything else falls through to the API router (404)."""
+            from pathlib import Path
+            frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+            if path == "/":
+                name, content_type = "index.html", "text/html"
+            elif path.startswith("/static/"):
+                name = path[len("/static/"):]
+                content_type = {
+                    "app.js": "text/javascript",
+                    "styles.css": "text/css",
+                }.get(name)
+                if content_type is None:
+                    return False
+            else:
+                return False
+            target = frontend_dir / name
+            if not target.is_file():
+                return False
+            self._send_file(target.read_bytes(), content_type)
+            return True
+
         def _read_json(self) -> dict:
             raw_length = self.headers.get("Content-Length") or "0"
             try:
@@ -1236,6 +1271,8 @@ def make_handler(app: ProofTrailApp):
                 try:
                     app.check_request_rate(self.client_address[0])
                     parsed = urlparse(self.path)
+                    if method == "GET" and self._serve_frontend(parsed.path):
+                        return
                     body = self._read_json() if method == "POST" else {}
                     status, payload = self._route(
                         method, parsed.path, parse_qs(parsed.query), body,
