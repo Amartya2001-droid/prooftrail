@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProofTrail</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>ProofTrail</h1>
+  <p>Hash-chained, signed provenance for digital work. This page never
+  shows document content on the verification view, only hashes.</p>
+  <nav>
+    <button id="nav-auth" type="button">Account</button>
+    <button id="nav-projects" type="button">Projects</button>
+    <button id="nav-versions" type="button">Versions</button>
+    <button id="nav-verify" type="button">Verify</button>
+    <button id="nav-diff" type="button">Diff</button>
+    <button id="nav-declarations" type="button">Declarations</button>
+    <button id="nav-export" type="button">Export and sessions</button>
+  </nav>
+</header>
+<main>
+  <p id="status" role="status"></p>
+
+  <section id="section-auth">
+    <h2>Account</h2>
+    <p id="auth-state">Not signed in.</p>
+    <form id="form-register">
+      <h3>Register</h3>
+      <label>Username <input id="register-username" required></label>
+      <label>Display name <input id="register-name" required></label>
+      <label>Password <input id="register-password" type="password" required></label>
+      <button type="submit">Register</button>
+    </form>
+    <form id="form-login">
+      <h3>Sign in</h3>
+      <label>Username <input id="login-username" required></label>
+      <label>Password <input id="login-password" type="password" required></label>
+      <button type="submit">Sign in</button>
+    </form>
+    <form id="form-totp" hidden>
+      <h3>Second factor</h3>
+      <p>Your account asked for a second factor. Enter the code from
+      your authenticator app, or a recovery code.</p>
+      <label>Code <input id="totp-code" required></label>
+      <button type="submit">Complete sign in</button>
+    </form>
+    <button id="button-logout" type="button" hidden>Sign out</button>
+  </section>
+
+  <section id="section-projects" hidden>
+    <h2>Projects</h2>
+    <form id="form-create-project">
+      <label>Title <input id="project-title" required></label>
+      <button type="submit">Create project</button>
+    </form>
+    <ul id="project-list"></ul>
+  </section>
+
+  <section id="section-versions" hidden>
+    <h2>Versions</h2>
+    <p>Pick a project on the Projects tab first. Versions are listed
+    oldest first; uploads here are new versions of that project.</p>
+    <p id="versions-project">No project selected.</p>
+    <form id="form-upload">
+      <label>Label <input id="upload-label"></label>
+      <label>File <input id="upload-file" type="file" required></label>
+      <button type="submit">Upload version</button>
+    </form>
+    <ul id="version-list"></ul>
+  </section>
+
+  <section id="section-verify" hidden>
+    <h2>Verify</h2>
+    <p>The verification view lists version hashes, actors and
+    timestamps, never document content.</p>
+    <p id="verify-valid"></p>
+    <ul id="verify-chain"></ul>
+    <h3>Self-approvals</h3>
+    <ul id="verify-self-approvals"></ul>
+    <h3>Contributors</h3>
+    <ul id="verify-contributors"></ul>
+    <h3>Recent ledger events</h3>
+    <ul id="verify-events"></ul>
+  </section>
+
+  <section id="section-diff" hidden>
+    <h2>Diff</h2>
+    <p>Compare two versions of the selected project. Leave both
+    blank to compare the latest version with its parent.</p>
+    <label>From version <select id="diff-from"></select></label>
+    <label>To version <select id="diff-to"></select></label>
+    <button id="button-diff" type="button">Show diff</button>
+    <p id="diff-summary"></p>
+    <h3>Added</h3>
+    <ul id="diff-added"></ul>
+    <h3>Removed</h3>
+    <ul id="diff-removed"></ul>
+  </section>
+
+  <section id="section-declarations" hidden>
+    <h2>Declarations and contribution map</h2>
+    <form id="form-declare">
+      <label>Version <select id="declare-version" required></select></label>
+      <label>Tool <input id="declare-tool" required></label>
+      <label>Prompt summary <input id="declare-summary"></label>
+      <button type="submit">Declare AI use</button>
+    </form>
+    <ul id="declaration-list"></ul>
+    <h3>Contribution map</h3>
+    <p id="contribution-coverage"></p>
+    <ul id="contribution-segments"></ul>
+  </section>
+
+  <section id="section-export" hidden>
+    <h2>Export and sessions</h2>
+    <form id="form-export">
+      <label>Claim (at most 500 characters)
+        <input id="export-claim" maxlength="500"></label>
+      <button type="submit">Build evidence bundle</button>
+    </form>
+    <pre id="export-output"></pre>
+    <h3>My sessions</h3>
+    <ul id="session-list"></ul>
+    <h3>Authentication audit</h3>
+    <ul id="audit-list"></ul>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
