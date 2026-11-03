@@ -19,6 +19,7 @@
     <button id="nav-diff" type="button">Diff</button>
     <button id="nav-declarations" type="button">Declarations</button>
     <button id="nav-export" type="button">Export and sessions</button>
+    <button id="nav-bundle" type="button">Verify bundle</button>
   </nav>
 </header>
 <main>
@@ -137,6 +138,19 @@
     <ul id="session-list"></ul>
     <h3>Authentication audit</h3>
     <ul id="audit-list"></ul>
+  </section>
+
+  <section id="section-bundle" hidden>
+    <h2>Verify an evidence bundle</h2>
+    <p>Paste an exported evidence bundle below. This check is public:
+    it needs no account, and it re-verifies the bundle's signatures
+    and hashes standalone, without trusting this server's ledger.</p>
+    <form id="form-bundle">
+      <label>Bundle JSON
+        <textarea id="bundle-json" rows="12" cols="80" required></textarea></label>
+      <button type="submit">Verify bundle</button>
+    </form>
+    <pre id="bundle-result"></pre>
   </section>
 </main>
 <script src="/static/app.js"></script>

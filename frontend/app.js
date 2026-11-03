@@ -48,7 +48,7 @@ async function api(path, options) {
 
 const SECTIONS = [
   "auth", "projects", "versions", "verify",
-  "diff", "declarations", "export",
+  "diff", "declarations", "export", "bundle",
 ];
 
 function showSection(name) {
@@ -594,6 +594,26 @@ function initProjects() {
   });
 }
 
+function initBundle() {
+  onSubmit("form-bundle", async () => {
+    let bundle;
+    try {
+      bundle = JSON.parse($("bundle-json").value);
+    } catch (error) {
+      setStatus("That is not valid JSON.");
+      return;
+    }
+    const result = await api("/api/bundles/verify", {
+      method: "POST",
+      body: bundle,
+    });
+    $("bundle-result").textContent = result.valid
+      ? "Bundle valid: its signatures and hashes check out."
+      : "Bundle problems: " + result.problems.join("; ");
+    setStatus(result.valid ? "Bundle verified." : "Bundle failed verification.");
+  });
+}
+
 function initNav() {
   for (const section of SECTIONS) {
     $("nav-" + section).addEventListener("click", () => {
@@ -609,6 +629,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initProjects();
   initCollaborators();
   initVerify();
+  initBundle();
   initVersions();
   initDiff();
   initDeclarations();
