@@ -61,16 +61,9 @@ function refreshAuthState() {
   const signedIn = Boolean(token());
   $("auth-state").textContent = signedIn ? "Signed in." : "Not signed in.";
   $("button-logout").hidden = !signedIn;
+  // The second-factor form is only ever shown by the login handler
+  // itself, so any token change (sign-in or sign-out) hides it again.
   $("form-totp").hidden = true;
-}
-
-function refreshAuthState() {
-  const signedIn = Boolean(token());
-  $("auth-state").textContent = signedIn ? "Signed in." : "Not signed in.";
-  $("button-logout").hidden = !signedIn;
-  if (signedIn) {
-    $("form-totp").hidden = true;
-  }
 }
 
 // The pending second-factor token lives in memory only: it expires in

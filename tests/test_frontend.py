@@ -43,6 +43,16 @@ class TestFrontendWiring(unittest.TestCase):
         missing = sorted(js_ids() - html_ids())
         self.assertEqual(missing, [])
 
+    def test_no_function_is_declared_twice(self):
+        # A duplicated top-level function declaration silently wins by
+        # position, so a later edit to the first copy changes nothing.
+        # That is how a stale refreshAuthState survived unnoticed.
+        text = (FRONTEND / "app.js").read_text()
+        names = re.findall(r"^function (\w+)\(", text, re.M)
+        duplicates = sorted({name for name in names
+                             if names.count(name) > 1})
+        self.assertEqual(duplicates, [])
+
     def test_html_loads_the_js_and_css(self):
         text = (FRONTEND / "index.html").read_text()
         self.assertIn('src="/static/app.js"', text)
