@@ -350,14 +350,23 @@ async function loadVerify() {
     + " ledger events).");
 }
 
-async function loadVersions() {
+// Paging state for the versions list. A fresh load (project select,
+// upload) resets to the first page; Load more appends the next page.
+let versionOffset = 0;
+const VERSION_PAGE = 50;
+
+async function loadVersions(reset) {
   const list = $("version-list");
-  list.innerHTML = "";
   if (!currentProjectId) {
     setStatus("Pick a project on the Projects tab first.");
     return;
   }
-  const data = await api("/api/projects/" + currentProjectId + "/versions");
+  if (reset !== false) {
+    list.innerHTML = "";
+    versionOffset = 0;
+  }
+  const data = await api("/api/projects/" + currentProjectId
+    + "/versions?limit=" + VERSION_PAGE + "&offset=" + versionOffset);
   for (const version of data.versions) {
     const item = document.createElement("li");
     item.textContent = (version.label || version.content_id) + " — "
@@ -380,7 +389,9 @@ async function loadVersions() {
     item.appendChild(approve);
     list.appendChild(item);
   }
-  if (data.versions.length === 0) {
+  versionOffset += data.versions.length;
+  $("button-versions-more").hidden = versionOffset >= data.total;
+  if (versionOffset === 0) {
     const item = document.createElement("li");
     item.textContent = "No versions yet. Upload one above.";
     list.appendChild(item);
@@ -398,6 +409,13 @@ function toBase64(buffer) {
 }
 
 function initVersions() {
+  $("button-versions-more").addEventListener("click", async () => {
+    try {
+      await loadVersions(false);
+    } catch (error) {
+      showError(error);
+    }
+  });
   onSubmit("form-upload", async () => {
     if (!currentProjectId) {
       setStatus("Pick a project on the Projects tab first.");
