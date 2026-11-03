@@ -427,6 +427,66 @@ function initVersions() {
   });
 }
 
+// The project whose collaborators the Projects tab is managing.
+// Separate from currentProjectId, which is the project other tabs act
+// on, so managing collaborators never retargets the other tabs.
+let manageProjectId = null;
+let manageProjectTitle = null;
+
+async function loadCollaborators() {
+  const list = $("collaborator-list");
+  list.innerHTML = "";
+  if (!manageProjectId) {
+    $("collaborator-project").textContent = "No project selected.";
+    return;
+  }
+  $("collaborator-project").textContent = "Collaborators of "
+    + manageProjectTitle + ":";
+  const data = await api("/api/projects/" + manageProjectId
+    + "/collaborators");
+  for (const person of data.collaborators) {
+    const item = document.createElement("li");
+    item.textContent = person.name + (person.is_creator ? " (creator)" : "")
+      + " ";
+    if (!person.is_creator) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", async () => {
+        try {
+          await api("/api/projects/" + manageProjectId
+            + "/collaborators/remove", {
+              method: "POST",
+              body: { username: person.actor_id },
+            });
+          setStatus("Collaborator removed.");
+          await loadCollaborators();
+        } catch (error) {
+          showError(error);
+        }
+      });
+      item.appendChild(remove);
+    }
+    list.appendChild(item);
+  }
+}
+
+function initCollaborators() {
+  onSubmit("form-add-collaborator", async () => {
+    if (!manageProjectId) {
+      setStatus("Pick a project's Collaborators button first.");
+      return;
+    }
+    await api("/api/projects/" + manageProjectId + "/collaborators", {
+      method: "POST",
+      body: { username: $("collaborator-username").value },
+    });
+    $("collaborator-username").value = "";
+    setStatus("Collaborator added.");
+    await loadCollaborators();
+  });
+}
+
 async function loadProjects() {
   const data = await api("/api/projects?limit=50&offset=0");
   const list = $("project-list");
@@ -445,6 +505,15 @@ async function loadProjects() {
       loadVersions().catch(showError);
     });
     item.appendChild(select);
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.textContent = "Collaborators";
+    manage.addEventListener("click", () => {
+      manageProjectId = project.project_id;
+      manageProjectTitle = project.title;
+      loadCollaborators().catch(showError);
+    });
+    item.appendChild(manage);
     list.appendChild(item);
   }
   if (data.projects.length === 0) {
@@ -480,6 +549,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNav();
   initAuth();
   initProjects();
+  initCollaborators();
   initVersions();
   initDiff();
   initDeclarations();
