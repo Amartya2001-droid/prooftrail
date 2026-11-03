@@ -316,6 +316,43 @@ function initDiff() {
   });
 }
 
+// Paging state for the ledger events on the Verify tab. Opening the
+// tab resets to the first page; Load more appends the next page.
+let eventOffset = 0;
+const EVENT_PAGE = 20;
+
+function renderEvents(events) {
+  const list = $("verify-events");
+  for (const event of events) {
+    const entry = document.createElement("li");
+    entry.textContent = event.type + " — " + (event.actor || "?")
+      + " — " + event.timestamp;
+    list.appendChild(entry);
+  }
+}
+
+async function loadMoreEvents() {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const data = await api("/api/projects/" + currentProjectId
+    + "/events?limit=" + EVENT_PAGE + "&offset=" + eventOffset);
+  renderEvents(data.events);
+  eventOffset += data.events.length;
+  $("button-events-more").hidden = eventOffset >= data.total;
+}
+
+function initVerify() {
+  $("button-events-more").addEventListener("click", async () => {
+    try {
+      await loadMoreEvents();
+    } catch (error) {
+      showError(error);
+    }
+  });
+}
+
 async function loadVerify() {
   if (!currentProjectId) {
     setStatus("Pick a project on the Projects tab first.");
@@ -325,8 +362,9 @@ async function loadVerify() {
   const [page, people, recent] = await Promise.all([
     api(base + "/verify"),
     api(base + "/collaborators"),
-    api(base + "/events?limit=20&offset=0"),
+    api(base + "/events?limit=" + EVENT_PAGE + "&offset=0"),
   ]);
+  eventOffset = 0;
   $("verify-valid").textContent = page.ledger_valid
     ? "Ledger valid: every version hash and signature checks out."
     : "Ledger problems: " + page.ledger_problems.join("; ");
@@ -344,8 +382,10 @@ async function loadVerify() {
     + (entry.content_id || ""));
   renderList("verify-contributors", people.collaborators, (person) =>
     person.name + (person.is_creator ? " (creator)" : ""));
-  renderList("verify-events", recent.events, (event) =>
-    event.type + " — " + (event.actor || "?") + " — " + event.timestamp);
+  $("verify-events").innerHTML = "";
+  renderEvents(recent.events);
+  eventOffset = recent.events.length;
+  $("button-events-more").hidden = eventOffset >= recent.total;
   setStatus("Verification for " + page.title + " (" + recent.total
     + " ledger events).");
 }
@@ -568,6 +608,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAuth();
   initProjects();
   initCollaborators();
+  initVerify();
   initVersions();
   initDiff();
   initDeclarations();
