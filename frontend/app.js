@@ -199,7 +199,9 @@ async function loadExportSection() {
     api("/api/sessions"),
     api("/api/sessions/audit?limit=50&offset=0"),
   ]);
-  renderList("session-list", mine.sessions, (session) => {
+  const sessionList = $("session-list");
+  sessionList.innerHTML = "";
+  for (const session of mine.sessions) {
     let line = session.session_id + (session.current ? " (this session)" : "");
     const extras = [];
     if (session.ip_address) {
@@ -211,8 +213,35 @@ async function loadExportSection() {
     if (extras.length) {
       line += " — " + extras.join(" — ");
     }
-    return line;
-  });
+    const item = document.createElement("li");
+    item.textContent = line + " ";
+    // The current session is revoked by signing out instead: revoking
+    // it here would leave a dead token in this tab's storage.
+    if (!session.current) {
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", async () => {
+        try {
+          await api("/api/sessions/revoke-one", {
+            method: "POST",
+            body: { session_id: session.session_id },
+          });
+          setStatus("Session revoked.");
+          await loadExportSection();
+        } catch (error) {
+          showError(error);
+        }
+      });
+      item.appendChild(revoke);
+    }
+    sessionList.appendChild(item);
+  }
+  if (mine.sessions.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "None.";
+    sessionList.appendChild(item);
+  }
   renderList("audit-list", trail.events, (event) =>
     event.type + " — " + event.timestamp
     + (event.detail ? " — " + event.detail : ""));
