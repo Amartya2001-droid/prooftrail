@@ -74,6 +74,16 @@ contribution map, and evidence-bundle export with sessions and the
 authentication audit. The session token is kept in sessionStorage
 only, so closing the tab signs the browser out.
 
+## Deploying (not deployed yet)
+
+The server binds to 127.0.0.1 by default and has no TLS of its own,
+so a public deployment is a reverse proxy in front of it, never the
+app exposed directly. `deploy/Caddyfile` is a working example: Caddy
+terminates TLS for your domain automatically and proxies to the app
+on localhost. Until that proxy is in place, this is a localhost app,
+not a production service — the CI badge above proves the tests pass,
+not that anything is served publicly.
+
 ## Supabase backend (optional)
 
 The JSON file store is the default. To persist state in Supabase

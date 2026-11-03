@@ -1,0 +1,23 @@
+# ProofTrail behind Caddy (example only — nothing here is deployed yet).
+#
+# The app itself only ever listens on localhost (its --host default is
+# 127.0.0.1), so it must never be exposed directly. Caddy terminates
+# TLS for a real domain and proxies to the local app; for a bare
+# domain name like the one below, Caddy enables HTTPS automatically
+# and TLS is never switched off anywhere in this file.
+#
+# 1. Replace example.com with your domain.
+# 2. Start the app bound to localhost:
+#      python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
+# 3. Run Caddy in this directory:
+#      caddy run
+#    (or "caddy adapt" to check the config first.)
+#
+# If you use the Supabase backend instead of the JSON file, set
+# SUPABASE_URL and SUPABASE_SERVICE_KEY in the app's own environment
+# on the server. The service key stays server-side only and must never
+# ship to a client or appear in this file.
+
+example.com {
+	reverse_proxy 127.0.0.1:8000
+}
