@@ -129,6 +129,19 @@ function initAuth() {
     setStatus("Signed in.");
   });
 
+  onSubmit("form-change-password", async () => {
+    await api("/api/users/password", {
+      method: "POST",
+      body: {
+        old_password: $("password-old").value,
+        new_password: $("password-new").value,
+      },
+    });
+    $("password-old").value = "";
+    $("password-new").value = "";
+    setStatus("Password changed. Your other sessions were signed out.");
+  });
+
   $("button-logout").addEventListener("click", async () => {
     try {
       await api("/api/sessions/revoke", { method: "POST" });

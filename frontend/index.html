@@ -49,6 +49,17 @@
       <button type="submit">Complete sign in</button>
     </form>
     <button id="button-logout" type="button" hidden>Sign out</button>
+    <form id="form-change-password">
+      <h3>Change password</h3>
+      <p>Changing your password signs out your other sessions. Your
+      signed history still verifies: the ledger keeps your old key
+      alongside the new one.</p>
+      <label>Current password
+        <input id="password-old" type="password" required></label>
+      <label>New password
+        <input id="password-new" type="password" required></label>
+      <button type="submit">Change password</button>
+    </form>
   </section>
 
   <section id="section-projects" hidden>
