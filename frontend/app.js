@@ -588,7 +588,12 @@ function initCollaborators() {
 }
 
 async function loadProjects() {
-  const data = await api("/api/projects?limit=50&offset=0");
+  const query = $("project-search").value.trim();
+  const params = new URLSearchParams({ limit: "50", offset: "0" });
+  if (query) {
+    params.set("q", query);
+  }
+  const data = await api("/api/projects?" + params.toString());
   const list = $("project-list");
   list.innerHTML = "";
   for (const project of data.projects) {
@@ -624,6 +629,9 @@ async function loadProjects() {
 }
 
 function initProjects() {
+  onSubmit("form-search-projects", async () => {
+    await loadProjects();
+  });
   onSubmit("form-create-project", async () => {
     const result = await api("/api/projects", {
       method: "POST",

@@ -134,9 +134,13 @@ class ProofTrailClient:
     def create_project(self, title: str) -> dict:
         return self._request("POST", "/api/projects", {"title": title})
 
-    def list_projects(self, limit: int = 50, offset: int = 0) -> dict:
-        return self._request(
-            "GET", f"/api/projects?limit={limit}&offset={offset}")
+    def list_projects(self, limit: int = 50, offset: int = 0,
+                      query: str = "") -> dict:
+        params = f"?limit={limit}&offset={offset}"
+        if query:
+            from urllib.parse import quote
+            params += f"&q={quote(query)}"
+        return self._request("GET", f"/api/projects{params}")
 
     def add_collaborator(self, project_id: str, username: str) -> dict:
         return self._request(

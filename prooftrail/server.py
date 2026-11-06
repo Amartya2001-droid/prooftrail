@@ -110,7 +110,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Revoke one session by id, requires Bearer token"}},
         "/api/projects": {
             "post": {"summary": "Create a project, requires Bearer token"},
-            "get": {"summary": "List my projects, requires Bearer token"}},
+            "get": {"summary": "List my projects, newest first, paged; "
+                               "q filters titles by substring"}},
         "/api/projects/{id}/collaborators": {
             "post": {"summary": "Add a collaborator"},
             "get": {"summary": "List collaborators, creator flagged"}},
@@ -704,8 +705,11 @@ class ProofTrailApp:
             return {"project_id": project_id}
 
     def list_projects(self, token: str | None,
-                      limit: int = 50, offset: int = 0) -> dict:
-        """Projects the caller collaborates on, newest first, paged."""
+                      limit: int = 50, offset: int = 0,
+                      query: str = "") -> dict:
+        """Projects the caller collaborates on, newest first, paged.
+        ``query`` filters titles by case-insensitive substring, so a
+        long project list stays searchable without a new endpoint."""
         if not 1 <= limit <= 200:
             raise ApiError(400, "limit must be between 1 and 200")
         if offset < 0:
@@ -718,6 +722,9 @@ class ProofTrailApp:
             # arbitrary despite the docstring promising newest first.
             mine = [p for p in self.projects.values()
                     if actor.actor_id in p.collaborators]
+            if query:
+                needle = query.lower()
+                mine = [p for p in mine if needle in p.title.lower()]
             mine.reverse()
             page = mine[offset:offset + limit]
             return {"projects": [
@@ -1211,7 +1218,9 @@ def make_handler(app: ProofTrailApp):
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if method == "GET" and parts == ["api", "projects"]:
-                return 200, app.list_projects(token, *_parse_paging(query))
+                return 200, app.list_projects(
+                    token, *_parse_paging(query),
+                    query.get("q", [""])[0])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "collaborators"):

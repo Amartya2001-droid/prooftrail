@@ -132,6 +132,7 @@ client lives in `prooftrail/client.py`.
 - `GET /api/openapi.json` — machine-readable API spec
 - `POST /api/projects` — create a project
 - `GET /api/projects` — list the projects you collaborate on, newest first
+  (paged; `q` filters titles by case-insensitive substring)
 - `POST /api/projects/<id>/collaborators` — add a collaborator
 - `POST /api/projects/<id>/collaborators/remove` — remove a collaborator (creator only)
 - `POST /api/projects/<id>/uploads` — upload a version
