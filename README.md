@@ -140,7 +140,12 @@ client lives in `prooftrail/client.py`.
   event. Re-uploading bytes identical to the latest version returns
   that version with `"duplicate": true` and adds no ledger event.
   Versions record filename, content type and byte size.
-- `POST /api/projects/<id>/approvals` — approve a version (approving the same version twice by the same actor adds no second event)
+- `POST /api/projects/<id>/approvals` — approve a version (optional
+  `comment`, at most 500 characters, recorded in the signed approval
+  event; a repeat approval by the same actor is idempotent and keeps
+  the first comment)
+- `GET /api/projects/<id>/approvals` — list approvals with comments,
+  paged (`limit`/`offset`)
 - `POST /api/projects/<id>/declarations` — declare AI use for a version
   (`{content_id, tool, prompt_summary?, sentence_indices?}`); the
   declaration is a signed ledger event, so it cannot be edited or

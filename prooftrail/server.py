@@ -18,7 +18,8 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/collaborators/remove {username} (creator only)
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
-- POST /api/projects/<id>/approvals   {content_id, timestamp?}
+- POST /api/projects/<id>/approvals   {content_id, comment?}
+- GET  /api/projects/<id>/approvals   (who approved what, with comments)
 - POST /api/projects/<id>/declarations {content_id, tool, prompt_summary?, sentence_indices?}
 - GET  /api/projects/<id>/declarations
 - GET  /api/projects/<id>/contributions (Human Contribution Map)
@@ -118,7 +119,8 @@ OPENAPI_SPEC = {
         "/api/projects/{id}/uploads": {
             "post": {"summary": "Upload a version (idempotent on identical bytes)"}},
         "/api/projects/{id}/approvals": {
-            "post": {"summary": "Approve a version"}},
+            "post": {"summary": "Approve a version, optional comment"},
+            "get": {"summary": "List approvals with comments, paged"}},
         "/api/projects/{id}/declarations": {
             "post": {"summary": "Declare AI use for a version"},
             "get": {"summary": "List AI-use declarations, paged"}},
@@ -834,17 +836,41 @@ class ProofTrailApp:
             }
 
     def approve(self, token: str | None, project_id: str,
-                content_id: str) -> dict:
+                content_id: str, comment: str = "") -> dict:
         with self._lock:
+            _validate_text("comment", comment, 500)
             actor = self._actor_for_token(token)
             project = self._project_for(actor, project_id)
             version = next((v for v in project.versions
                             if v.content_id == content_id), None)
             if version is None:
                 raise ApiError(404, "version not found")
-            project.approve(actor, version, _now())
+            project.approve(actor, version, _now(), comment=comment)
             self._save()
             return {"approved": content_id}
+
+    def approvals(self, token: str | None, project_id: str,
+                  limit: int = 50, offset: int = 0) -> dict:
+        """Who approved what, and why: approvals reconstructed
+        from the signed ledger, in ledger order, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            found = [
+                {"actor_id": event["actor"],
+                 "content_id": event.get("content_id"),
+                 "timestamp": event["timestamp"],
+                 "comment": event.get("payload", {}).get("comment", "")}
+                for event in project.ledger.events
+                if event["type"] == "approval"
+            ]
+            page = found[offset:offset + limit]
+            return {"approvals": page, "total": len(found),
+                    "limit": limit, "offset": offset}
 
     def declare(self, token: str | None, project_id: str, content_id: str,
                 tool: str, prompt_summary: str = "",
@@ -1212,7 +1238,13 @@ def make_handler(app: ProofTrailApp):
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "approvals"):
-                return 200, app.approve(token, parts[2], body["content_id"])
+                return 200, app.approve(token, parts[2], body["content_id"],
+                                        body.get("comment", ""))
+            if (method == "GET" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "approvals"):
+                return 200, app.approvals(token, parts[2],
+                                          *_parse_paging(query))
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "declarations"):

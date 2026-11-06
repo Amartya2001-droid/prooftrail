@@ -102,7 +102,8 @@ class Project:
         )
         return version
 
-    def approve(self, actor: Actor, version: Version, timestamp: str) -> dict:
+    def approve(self, actor: Actor, version: Version, timestamp: str,
+                comment: str = "") -> dict:
         """Record a client/collaborator approval of a version.
 
         Approval is binary, so a second approval of the same
@@ -111,9 +112,17 @@ class Project:
         signed event for the same fact, which would inflate the
         event count and the approval evidence. A different actor
         approving the same version still adds their own event.
+        ``comment`` is an optional note (at most 500 characters)
+        recorded in the approval event's payload, so the reason
+        for an approval is part of the signed history, not a side
+        conversation. Because the ledger is append-only, a comment
+        rides on the first approval only: a repeat approval by the
+        same actor returns the original event, comment included.
         """
         if actor.actor_id not in self.collaborators:
             raise ValueError(f"{actor.actor_id} is not a collaborator")
+        if len(comment) > 500:
+            raise ValueError("comment must be at most 500 characters")
         for event in self.ledger.events:
             if (event["type"] == "approval"
                     and event["actor"] == actor.actor_id
@@ -122,6 +131,7 @@ class Project:
         return self.ledger.append(
             "approval", actor.actor_id, actor.secret_key,
             content_id=version.content_id, timestamp=timestamp,
+            payload={"comment": comment} if comment else {},
         )
 
     def declare(self, actor: Actor, version: Version, tool: str,
