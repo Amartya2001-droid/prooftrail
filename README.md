@@ -131,6 +131,7 @@ client lives in `prooftrail/client.py`.
 - `POST /api/sessions/totp` — complete a pending TOTP login
 - `GET /api/openapi.json` — machine-readable API spec
 - `POST /api/projects` — create a project
+- `POST /api/projects/<id>/rename` — rename a project (creator only)
 - `GET /api/projects` — list the projects you collaborate on, newest first
   (paged; `q` filters titles by case-insensitive substring)
 - `POST /api/projects/<id>/collaborators` — add a collaborator

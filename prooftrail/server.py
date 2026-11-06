@@ -15,6 +15,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - GET  /api/sessions                 (Bearer token; own sessions)
 - POST /api/sessions/revoke-one       (Bearer token; revoke one session)
 - POST /api/projects                  {title} -> {project_id}
+- POST /api/projects/<id>/rename      {title} (creator only)
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/collaborators/remove {username} (creator only)
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
@@ -113,6 +114,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Create a project, requires Bearer token"},
             "get": {"summary": "List my projects, newest first, paged; "
                                "q filters titles by substring"}},
+        "/api/projects/{id}/rename": {
+            "post": {"summary": "Rename a project (creator only)"}},
         "/api/projects/{id}/collaborators": {
             "post": {"summary": "Add a collaborator"},
             "get": {"summary": "List collaborators, creator flagged"}},
@@ -737,6 +740,23 @@ class ProofTrailApp:
                 for p in page
             ], "total": len(mine), "limit": limit, "offset": offset}
 
+    def rename(self, token: str | None, project_id: str,
+               title: str) -> dict:
+        """Rename a project. Creator-only, like inviting: a title is
+        part of a project's identity, and a reviewer must not be
+        able to rename someone else's project out from under them."""
+        with self._lock:
+            _validate_text("title", title, 200, required=True)
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            if (project.creator_id is not None
+                    and actor.actor_id != project.creator_id):
+                raise ApiError(
+                    403, "only the project creator can rename it")
+            project.title = title
+            self._save()
+            return {"project_id": project_id, "title": title}
+
     def collaborators_for(self, token: str | None,
                           project_id: str) -> dict:
         """Who can see this project, with the creator flagged.
@@ -1251,6 +1271,10 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.revoke_session(token, body["session_id"])
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
+            if (method == "POST" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "rename"):
+                return 200, app.rename(token, parts[2], body["title"])
             if method == "GET" and parts == ["api", "projects"]:
                 return 200, app.list_projects(
                     token, *_parse_paging(query),

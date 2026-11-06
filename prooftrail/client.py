@@ -131,6 +131,11 @@ class ProofTrailClient:
         self.token = None
         return body
 
+    def rename(self, project_id: str, title: str) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/rename",
+            {"title": title})
+
     def create_project(self, title: str) -> dict:
         return self._request("POST", "/api/projects", {"title": title})
 

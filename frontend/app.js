@@ -648,6 +648,26 @@ async function loadProjects() {
       loadCollaborators().catch(showError);
     });
     item.appendChild(manage);
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.addEventListener("click", async () => {
+      const title = prompt("New title for this project:", project.title);
+      if (title === null || title.trim() === "") {
+        return;
+      }
+      try {
+        await api("/api/projects/" + project.project_id + "/rename", {
+          method: "POST",
+          body: { title: title.trim() },
+        });
+        setStatus("Project renamed.");
+        await loadProjects();
+      } catch (error) {
+        showError(error);
+      }
+    });
+    item.appendChild(rename);
     list.appendChild(item);
   }
   if (data.projects.length === 0) {
