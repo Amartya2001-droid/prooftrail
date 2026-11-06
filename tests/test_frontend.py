@@ -78,6 +78,14 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertNotIn("ip_address", text)
         self.assertIn('event.event + " — " + event.timestamp', text)
 
+    def test_versions_tab_has_a_paste_text_upload(self):
+        # A quick text version must not need a file: the Versions tab
+        # offers a paste box that uploads as text/plain.
+        text = (FRONTEND / "app.js").read_text()
+        self.assertIn("form-upload-text", text)
+        self.assertIn("upload-text", text)
+        self.assertIn("text/plain", text)
+
 
 if __name__ == "__main__":
     unittest.main()

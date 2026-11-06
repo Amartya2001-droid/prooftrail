@@ -568,6 +568,35 @@ function initVersions() {
       : "Version uploaded.");
     await loadVersions();
   });
+  onSubmit("form-upload-text", async () => {
+    if (!currentProjectId) {
+      setStatus("Pick a project on the Projects tab first.");
+      return;
+    }
+    const text = $("upload-text").value;
+    if (!text) {
+      setStatus("Paste some text first.");
+      return;
+    }
+    // btoa only takes Latin-1, so text is UTF-8 encoded first:
+    // pasted text with any characters must survive the round trip.
+    const result = await api(
+      "/api/projects/" + currentProjectId + "/uploads", {
+        method: "POST",
+        body: {
+          content_base64: btoa(unescape(encodeURIComponent(text))),
+          label: $("upload-text-label").value,
+          filename: "",
+          content_type: "text/plain",
+        },
+      });
+    $("upload-text-label").value = "";
+    $("upload-text").value = "";
+    setStatus(result.duplicate
+      ? "Already the latest version: no duplicate was recorded."
+      : "Text version uploaded.");
+    await loadVersions();
+  });
 }
 
 // The project whose collaborators the Projects tab is managing.
