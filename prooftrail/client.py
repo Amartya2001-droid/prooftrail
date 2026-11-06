@@ -107,6 +107,10 @@ class ProofTrailClient:
         return self._request("POST", "/api/users/totp/disable",
                              {"password": password})
 
+    def totp_regenerate_recovery(self, password: str) -> dict:
+        return self._request("POST", "/api/users/totp/recovery",
+                             {"password": password})
+
     def sessions(self) -> dict:
         return self._request("GET", "/api/sessions")
 

@@ -7,6 +7,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/users/totp/setup          (Bearer token; start TOTP enrollment)
 - POST /api/users/totp/confirm        (Bearer token; code; enable TOTP)
 - POST /api/users/totp/disable        (Bearer token; password; disable TOTP)
+- POST /api/users/totp/recovery      (Bearer token; password; new recovery codes)
 - POST /api/sessions/totp             {pending_token, code | recovery_code}
 - POST /api/sessions                  {username, password} -> {token}
 - POST /api/sessions/revoke           (Bearer token; logs out)
@@ -102,6 +103,9 @@ OPENAPI_SPEC = {
             "post": {"summary": "Confirm TOTP enrollment, requires Bearer token"}},
         "/api/users/totp/disable": {
             "post": {"summary": "Disable TOTP, requires Bearer token"}},
+        "/api/users/totp/recovery": {
+            "post": {"summary": "Regenerate TOTP recovery codes, "
+                               "password required"}},
         "/api/sessions/totp": {
             "post": {"summary": "Complete a pending TOTP login"}},
         "/api/sessions/audit": {
@@ -568,6 +572,28 @@ class ProofTrailApp:
             self._save()
             self.audit.record("totp_enabled", actor.actor_id)
             return {"enabled": True, "recovery_codes": codes}
+
+    def regenerate_recovery_codes(self, token: str | None,
+                                  password: str) -> dict:
+        """Issue a fresh set of TOTP recovery codes.
+
+        Recovery codes are single-use and shown only once, so a lost
+        list leaves the account with no way back in if the
+        authenticator is also gone. The password must be proven
+        again, and the old codes stop working the moment the new
+        ones are issued."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            user = self.users[actor.actor_id]
+            if not user.totp_enabled:
+                raise ApiError(400, "TOTP is not enabled")
+            if authenticate(user, password) is None:
+                raise ApiError(401, "invalid credentials")
+            codes = generate_recovery_codes()
+            user.recovery_codes = [hash_recovery_code(c) for c in codes]
+            self._save()
+            self.audit.record("totp_recovery_regenerated", actor.actor_id)
+            return {"recovery_codes": codes}
 
     def totp_disable(self, token: str | None, password: str) -> dict:
         """Disable TOTP. The password must be proven again, so a
@@ -1256,6 +1282,9 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.totp_confirm(token, body["code"])
             if method == "POST" and parts == ["api", "users", "totp", "disable"]:
                 return 200, app.totp_disable(token, body["password"])
+            if method == "POST" and parts == ["api", "users", "totp", "recovery"]:
+                return 200, app.regenerate_recovery_codes(
+                    token, body["password"])
             if method == "POST" and parts == ["api", "sessions", "revoke"]:
                 return 200, app.logout(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-all"]:

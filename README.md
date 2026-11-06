@@ -128,6 +128,8 @@ client lives in `prooftrail/client.py`.
 - `POST /api/users/totp/setup` — start optional TOTP enrollment
 - `POST /api/users/totp/confirm` — confirm TOTP enrollment
 - `POST /api/users/totp/disable` — disable TOTP (password required)
+- `POST /api/users/totp/recovery` — regenerate the recovery codes
+  (password required; the old codes stop working at once)
 - `POST /api/sessions/totp` — complete a pending TOTP login
 - `GET /api/openapi.json` — machine-readable API spec
 - `POST /api/projects` — create a project
