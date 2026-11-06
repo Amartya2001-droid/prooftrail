@@ -665,13 +665,17 @@ async function loadProjects() {
   if (query) {
     params.set("q", query);
   }
+  if ($("project-show-archived").checked) {
+    params.set("include_archived", "true");
+  }
   const data = await api("/api/projects?" + params.toString());
   const list = $("project-list");
   list.innerHTML = "";
   for (const project of data.projects) {
     const item = document.createElement("li");
     item.textContent = project.title + " (" + project.versions
-      + " versions, " + project.collaborators.length + " collaborators) ";
+      + " versions, " + project.collaborators.length + " collaborators)"
+      + (project.archived ? " (archived)" : "") + " ";
     const select = document.createElement("button");
     select.type = "button";
     select.textContent = "Select";
@@ -711,6 +715,23 @@ async function loadProjects() {
       }
     });
     item.appendChild(rename);
+    const archive = document.createElement("button");
+    archive.type = "button";
+    archive.textContent = project.archived ? "Unarchive" : "Archive";
+    archive.addEventListener("click", async () => {
+      try {
+        await api("/api/projects/" + project.project_id
+          + (project.archived ? "/unarchive" : "/archive"), {
+            method: "POST",
+          });
+        setStatus(project.archived
+          ? "Project unarchived." : "Project archived.");
+        await loadProjects();
+      } catch (error) {
+        showError(error);
+      }
+    });
+    item.appendChild(archive);
     list.appendChild(item);
   }
   if (data.projects.length === 0) {
@@ -723,6 +744,9 @@ async function loadProjects() {
 function initProjects() {
   onSubmit("form-search-projects", async () => {
     await loadProjects();
+  });
+  $("project-show-archived").addEventListener("change", () => {
+    loadProjects().catch(showError);
   });
   onSubmit("form-create-project", async () => {
     const result = await api("/api/projects", {

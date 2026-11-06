@@ -135,7 +135,13 @@ client lives in `prooftrail/client.py`.
 - `POST /api/projects` — create a project
 - `POST /api/projects/<id>/rename` — rename a project (creator only)
 - `GET /api/projects` — list the projects you collaborate on, newest first
-  (paged; `q` filters titles by case-insensitive substring)
+  (paged; `q` filters titles by case-insensitive substring;
+  `include_archived=true` also lists archived projects, which are
+  hidden by default)
+- `POST /api/projects/<id>/archive` — archive a project (creator
+  only; hides it from the default list, does not lock it)
+- `POST /api/projects/<id>/unarchive` — unarchive a project
+  (creator only)
 - `POST /api/projects/<id>/collaborators` — add a collaborator
 - `POST /api/projects/<id>/collaborators/remove` — remove a collaborator (creator only)
 - `POST /api/projects/<id>/uploads` — upload a version

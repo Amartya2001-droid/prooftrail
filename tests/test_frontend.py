@@ -86,6 +86,15 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn("upload-text", text)
         self.assertIn("text/plain", text)
 
+    def test_projects_tab_has_archive_controls(self):
+        # Archiving is a list concern, so the Projects tab needs the
+        # toggle and the per-project Archive/Unarchive button.
+        text = (FRONTEND / "app.js").read_text()
+        self.assertIn("project-show-archived", text)
+        self.assertIn("include_archived", text)
+        self.assertIn('"Archive"', text)
+        self.assertIn('"Unarchive"', text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -140,15 +140,25 @@ class ProofTrailClient:
             "POST", f"/api/projects/{project_id}/rename",
             {"title": title})
 
+    def archive(self, project_id: str) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/archive", {})
+
+    def unarchive(self, project_id: str) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/unarchive", {})
+
     def create_project(self, title: str) -> dict:
         return self._request("POST", "/api/projects", {"title": title})
 
     def list_projects(self, limit: int = 50, offset: int = 0,
-                      query: str = "") -> dict:
+                      query: str = "", include_archived: bool = False) -> dict:
         params = f"?limit={limit}&offset={offset}"
         if query:
             from urllib.parse import quote
             params += f"&q={quote(query)}"
+        if include_archived:
+            params += "&include_archived=true"
         return self._request("GET", f"/api/projects{params}")
 
     def add_collaborator(self, project_id: str, username: str) -> dict:

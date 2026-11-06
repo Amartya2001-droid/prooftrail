@@ -55,6 +55,10 @@ class Project:
         # added (the creator). Set explicitly by the server, or
         # inferred from the first add for direct store use.
         self.creator_id: str | None = None
+        # Archived projects are hidden from the default project list,
+        # not locked: a finished project stays reachable by id, and
+        # its history still verifies. Archiving only declutters.
+        self.archived: bool = False
 
     def add_collaborator(self, actor: Actor) -> None:
         if self.creator_id is None:

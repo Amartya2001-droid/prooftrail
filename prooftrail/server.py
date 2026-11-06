@@ -17,6 +17,8 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/sessions/revoke-one       (Bearer token; revoke one session)
 - POST /api/projects                  {title} -> {project_id}
 - POST /api/projects/<id>/rename      {title} (creator only)
+- POST /api/projects/<id>/archive     (creator only; hides from list)
+- POST /api/projects/<id>/unarchive   (creator only)
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/collaborators/remove {username} (creator only)
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
@@ -120,6 +122,10 @@ OPENAPI_SPEC = {
                                "q filters titles by substring"}},
         "/api/projects/{id}/rename": {
             "post": {"summary": "Rename a project (creator only)"}},
+        "/api/projects/{id}/archive": {
+            "post": {"summary": "Archive a project (creator only)"}},
+        "/api/projects/{id}/unarchive": {
+            "post": {"summary": "Unarchive a project (creator only)"}},
         "/api/projects/{id}/collaborators": {
             "post": {"summary": "Add a collaborator"},
             "get": {"summary": "List collaborators, creator flagged"}},
@@ -738,10 +744,13 @@ class ProofTrailApp:
 
     def list_projects(self, token: str | None,
                       limit: int = 50, offset: int = 0,
-                      query: str = "") -> dict:
+                      query: str = "", include_archived: bool = False) -> dict:
         """Projects the caller collaborates on, newest first, paged.
         ``query`` filters titles by case-insensitive substring, so a
-        long project list stays searchable without a new endpoint."""
+        long project list stays searchable without a new endpoint.
+        Archived projects are hidden unless ``include_archived`` is
+        set: archiving declutters the list, it does not lock a
+        project out."""
         if not 1 <= limit <= 200:
             raise ApiError(400, "limit must be between 1 and 200")
         if offset < 0:
@@ -757,12 +766,15 @@ class ProofTrailApp:
             if query:
                 needle = query.lower()
                 mine = [p for p in mine if needle in p.title.lower()]
+            if not include_archived:
+                mine = [p for p in mine if not p.archived]
             mine.reverse()
             page = mine[offset:offset + limit]
             return {"projects": [
                 {"project_id": p.project_id, "title": p.title,
                  "versions": len(p.versions),
-                 "collaborators": sorted(p.collaborators)}
+                 "collaborators": sorted(p.collaborators),
+                 "archived": p.archived}
                 for p in page
             ], "total": len(mine), "limit": limit, "offset": offset}
 
@@ -782,6 +794,29 @@ class ProofTrailApp:
             project.title = title
             self._save()
             return {"project_id": project_id, "title": title}
+
+    def _set_archived(self, token: str | None, project_id: str,
+                      archived: bool) -> dict:
+        """Archive or unarchive a project. Creator-only, like
+        renaming: archiving hides the project from the default
+        list, it does not lock it — a collaborator who still has
+        the id can open it, and its history still verifies."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            if (project.creator_id is not None
+                    and actor.actor_id != project.creator_id):
+                raise ApiError(
+                    403, "only the project creator can archive it")
+            project.archived = archived
+            self._save()
+            return {"project_id": project_id, "archived": archived}
+
+    def archive(self, token: str | None, project_id: str) -> dict:
+        return self._set_archived(token, project_id, True)
+
+    def unarchive(self, token: str | None, project_id: str) -> dict:
+        return self._set_archived(token, project_id, False)
 
     def collaborators_for(self, token: str | None,
                           project_id: str) -> dict:
@@ -1307,7 +1342,17 @@ def make_handler(app: ProofTrailApp):
             if method == "GET" and parts == ["api", "projects"]:
                 return 200, app.list_projects(
                     token, *_parse_paging(query),
-                    query.get("q", [""])[0])
+                    query.get("q", [""])[0],
+                    query.get("include_archived", ["false"])[0].lower()
+                    == "true")
+            if (method == "POST" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "archive"):
+                return 200, app.archive(token, parts[2])
+            if (method == "POST" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "unarchive"):
+                return 200, app.unarchive(token, parts[2])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "collaborators"):

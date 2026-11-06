@@ -29,6 +29,8 @@ def project_to_dict(project: Project) -> dict:
         "project_id": project.project_id,
         "title": project.title,
         "creator_id": project.creator_id,
+        # States written before archiving default to not archived.
+        "archived": project.archived,
         "blobs": {cid: base64.b64encode(data).decode()
                   for cid, data in project._blobs.items()},
         "versions": [
@@ -110,6 +112,8 @@ def project_from_dict(data: dict) -> Project:
     # collaborator, who was the creator by construction.
     project.creator_id = data.get("creator_id") or (
         next(iter(project.collaborators), None))
+    # States written before archiving default to not archived.
+    project.archived = bool(data.get("archived", False))
     return project
 
 
