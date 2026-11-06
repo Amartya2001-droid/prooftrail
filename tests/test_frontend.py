@@ -58,6 +58,14 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn('src="/static/app.js"', text)
         self.assertIn('href="/static/styles.css"', text)
 
+    def test_versions_list_has_a_download_button(self):
+        # The versions list must offer a download: the content
+        # endpoint exists, but without a button the UI cannot reach it.
+        text = (FRONTEND / "app.js").read_text()
+        self.assertIn("versions/content", text)
+        self.assertIn('"Download"', text)
+        self.assertIn("anchor.download", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -469,6 +469,35 @@ async function loadVersions(reset) {
       }
     });
     item.appendChild(approve);
+    // Download uses the stored filename, so the file a reviewer
+    // saves is the file that was uploaded, not a bare hash.
+    const download = document.createElement("button");
+    download.type = "button";
+    download.textContent = "Download";
+    download.addEventListener("click", async () => {
+      try {
+        const data = await api("/api/projects/" + currentProjectId
+          + "/versions/content?content_id=" + version.content_id);
+        const binary = atob(data.content_base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], {
+          type: version.content_type || "application/octet-stream",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = version.filename || version.content_id;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        setStatus("Version downloaded.");
+      } catch (error) {
+        showError(error);
+      }
+    });
+    item.appendChild(download);
     list.appendChild(item);
   }
   versionOffset += data.versions.length;
