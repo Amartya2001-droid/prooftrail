@@ -82,6 +82,7 @@ class Project:
         label: str = "",
         filename: str = "",
         content_type: str = "application/octet-stream",
+        event_type: str | None = None,
     ) -> Version:
         """Store a new version and record it on the ledger."""
         if actor.actor_id not in self.collaborators:
@@ -93,7 +94,8 @@ class Project:
                           filename=filename, content_type=content_type,
                           size=len(data))
         self.versions.append(version)
-        event_type = "upload" if parent is None else "edit"
+        if event_type is None:
+            event_type = "upload" if parent is None else "edit"
         self.ledger.append(
             event_type, actor.actor_id, actor.secret_key,
             content_id=cid, parent_content_id=parent, timestamp=timestamp,
@@ -101,6 +103,26 @@ class Project:
                      "size": len(data)},
         )
         return version
+
+    def restore(self, actor: Actor, version: Version,
+                timestamp: str) -> Version:
+        """Re-publish an older version as the newest one.
+
+        The old bytes are stored again as a new version whose parent
+        is the current latest, so the history shows the rollback
+        instead of rewriting it: the ledger gains a "restore" event
+        and the versions in between stay on record. Restoring the
+        latest version is a no-op the caller should not ask for.
+        """
+        if actor.actor_id not in self.collaborators:
+            raise ValueError(f"{actor.actor_id} is not a collaborator")
+        if version.content_id not in {v.content_id for v in self.versions}:
+            raise ValueError("version does not belong to this project")
+        label = "Restored from " + (version.label or version.content_id)
+        return self.upload(
+            actor, self.read(version), timestamp, label,
+            filename=version.filename, content_type=version.content_type,
+            event_type="restore")
 
     def approve(self, actor: Actor, version: Version, timestamp: str,
                 comment: str = "") -> dict:

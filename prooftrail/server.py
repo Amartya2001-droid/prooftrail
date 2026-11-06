@@ -18,6 +18,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - POST /api/projects/<id>/collaborators {username}
 - POST /api/projects/<id>/collaborators/remove {username} (creator only)
 - POST /api/projects/<id>/uploads     {content_base64, label?, timestamp?}
+- POST /api/projects/<id>/restore     {content_id} -> older version as newest
 - POST /api/projects/<id>/approvals   {content_id, comment?}
 - GET  /api/projects/<id>/approvals   (who approved what, with comments)
 - POST /api/projects/<id>/declarations {content_id, tool, prompt_summary?, sentence_indices?}
@@ -119,6 +120,8 @@ OPENAPI_SPEC = {
             "post": {"summary": "Remove a collaborator (creator only)"}},
         "/api/projects/{id}/uploads": {
             "post": {"summary": "Upload a version (idempotent on identical bytes)"}},
+        "/api/projects/{id}/restore": {
+            "post": {"summary": "Restore an older version as the newest"}},
         "/api/projects/{id}/approvals": {
             "post": {"summary": "Approve a version, optional comment"},
             "get": {"summary": "List approvals with comments, paged"}},
@@ -842,6 +845,37 @@ class ProofTrailApp:
                 "duplicate": False,
             }
 
+    def restore(self, token: str | None, project_id: str,
+                content_id: str) -> dict:
+        """Re-publish an older version as the newest one. The old
+        bytes become a new version (parent: the current latest),
+        labelled "Restored from ...", with a "restore" ledger event.
+        Restoring the latest version is rejected: it is already
+        current, and a restore must add history, not duplicate it."""
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            version = next((v for v in project.versions
+                            if v.content_id == content_id), None)
+            if version is None:
+                raise ApiError(404, "version not found")
+            latest = project.versions[-1] if project.versions else None
+            if latest is not None and latest.content_id == content_id:
+                raise ApiError(
+                    400, "that version is already the latest version")
+            restored = project.restore(actor, version, _now())
+            self._save()
+            return {
+                "content_id": restored.content_id,
+                "parent_content_id": restored.parent_content_id,
+                "label": restored.label,
+                "timestamp": restored.timestamp,
+                "filename": restored.filename,
+                "content_type": restored.content_type,
+                "size": restored.size,
+                "restored_from": content_id,
+            }
+
     def approve(self, token: str | None, project_id: str,
                 content_id: str, comment: str = "") -> dict:
         with self._lock:
@@ -1244,6 +1278,11 @@ def make_handler(app: ProofTrailApp):
                                        body.get("filename", ""),
                                        body.get("content_type",
                                                 "application/octet-stream"))
+            if (method == "POST" and len(parts) == 4
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "restore"):
+                return 201, app.restore(token, parts[2],
+                                        body["content_id"])
             if (method == "POST" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "approvals"):

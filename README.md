@@ -141,6 +141,10 @@ client lives in `prooftrail/client.py`.
   event. Re-uploading bytes identical to the latest version returns
   that version with `"duplicate": true` and adds no ledger event.
   Versions record filename, content type and byte size.
+- `POST /api/projects/<id>/restore` — re-publish an older version as
+  the newest (`{content_id}`): its bytes become a new version with
+  the current latest as parent, labelled "Restored from …", with a
+  `restore` ledger event. Restoring the latest version is rejected.
 - `POST /api/projects/<id>/approvals` — approve a version (optional
   `comment`, at most 500 characters, recorded in the signed approval
   event; a repeat approval by the same actor is idempotent and keeps

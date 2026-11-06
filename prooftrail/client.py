@@ -165,6 +165,11 @@ class ProofTrailClient:
              "label": label, "filename": filename,
              "content_type": content_type})
 
+    def restore(self, project_id: str, content_id: str) -> dict:
+        return self._request(
+            "POST", f"/api/projects/{project_id}/restore",
+            {"content_id": content_id})
+
     def approve(self, project_id: str, content_id: str) -> dict:
         return self._request("POST", f"/api/projects/{project_id}/approvals",
                              {"content_id": content_id})
