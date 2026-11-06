@@ -217,11 +217,23 @@ async function loadExportSection() {
   for (const session of mine.sessions) {
     let line = session.session_id + (session.current ? " (this session)" : "");
     const extras = [];
-    if (session.ip_address) {
-      extras.push(session.ip_address);
+    if (session.remote_addr) {
+      extras.push(session.remote_addr);
     }
     if (session.user_agent) {
       extras.push(session.user_agent);
+    }
+    // Sessions expire after 24 hours and after 30 idle minutes, so
+    // the list shows when each one was created, last seen and when
+    // it stops working — otherwise a stale session looks live.
+    if (session.created_at) {
+      extras.push("created " + session.created_at);
+    }
+    if (session.last_seen) {
+      extras.push("last seen " + session.last_seen);
+    }
+    if (session.expires_at) {
+      extras.push("expires " + session.expires_at);
     }
     if (extras.length) {
       line += " — " + extras.join(" — ");
@@ -255,8 +267,10 @@ async function loadExportSection() {
     item.textContent = "None.";
     sessionList.appendChild(item);
   }
+  // Audit events carry their kind in "event", not "type": the old
+  // render read event.type and showed "undefined" for every row.
   renderList("audit-list", trail.events, (event) =>
-    event.type + " — " + event.timestamp
+    event.event + " — " + event.timestamp
     + (event.detail ? " — " + event.detail : ""));
 }
 

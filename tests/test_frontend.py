@@ -66,6 +66,18 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn('"Download"', text)
         self.assertIn("anchor.download", text)
 
+    def test_sessions_show_expiry_and_audit_uses_event_field(self):
+        # The sessions API already returns created/last_seen/
+        # expires_at; the UI must show them, or a stale session looks
+        # live. And audit events carry their kind in "event": reading
+        # "type" rendered every audit row as "undefined".
+        text = (FRONTEND / "app.js").read_text()
+        self.assertIn("expires_at", text)
+        self.assertIn("created_at", text)
+        self.assertIn("remote_addr", text)
+        self.assertNotIn("ip_address", text)
+        self.assertIn('event.event + " — " + event.timestamp', text)
+
 
 if __name__ == "__main__":
     unittest.main()
