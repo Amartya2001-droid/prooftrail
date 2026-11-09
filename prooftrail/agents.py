@@ -24,8 +24,13 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-from .store import Project
+from .store import Actor, Project
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -143,12 +148,36 @@ class Orchestrator:
 
     def __init__(self, project: Project) -> None:
         self.project = project
+        # Signing identities for the agents, created on first use.
+        # Ledger actor ids are namespaced ("agent:verity") so an
+        # agent can never collide with a human username: a human
+        # called "verity" would otherwise share the actor slot and
+        # its keys. Each instance mints fresh keys; the ledger keeps
+        # every registered key, so events signed under an earlier
+        # instance's keys still verify after a restart.
+        self._agent_actors: dict[str, Actor] = {}
+
+    def _agent_actor(self, agent_id: str) -> Actor:
+        """The signing actor for a role, registered on the ledger."""
+        actor = self._agent_actors.get(agent_id)
+        if actor is None:
+            actor = Actor.create(f"agent:{agent_id}",
+                                 get_role(agent_id).name)
+            self.project.ledger.register_actor(actor.actor_id,
+                                              actor.public_key)
+            self._agent_actors[agent_id] = actor
+        return actor
 
     def run(self, task: dict) -> AgentReport:
         """Run a task and return the merged report.
 
         ``task`` needs a "kind" this orchestrator knows; if it also
         carries a "project_id" it must name this project.
+
+        The run itself is written into the project's signed ledger
+        as it happens — started, one event per finding, finished —
+        so the run is tamper-evident like everything else: rewriting
+        a finding breaks verification.
         """
         kind = task.get("kind")
         if kind not in self.TASK_AGENTS:
@@ -159,6 +188,11 @@ class Orchestrator:
                 f"task project {task['project_id']!r} does not match "
                 f"project {self.project.project_id!r}")
         run_id = "run-" + secrets.token_hex(8)
+        started_at = _now_iso()
+        self._append_event(
+            "agent_run_started", "orchestrator", started_at,
+            {"run_id": run_id, "kind": kind,
+             "project_id": self.project.project_id})
         findings: list[Finding] = []
         summaries: dict[str, str] = {}
         for agent_id in self.TASK_AGENTS[kind]:
@@ -166,10 +200,30 @@ class Orchestrator:
             findings.extend(agent_findings)
             summaries[agent_id] = summary
         verdict = self._verdict(findings)
+        for finding in findings:
+            self._append_event(
+                "agent_finding", finding.agent_id, _now_iso(),
+                {"run_id": run_id, "severity": finding.severity,
+                 "message": finding.message,
+                 "evidence": finding.evidence,
+                 "status": finding.status})
+        self._append_event(
+            "agent_run_finished", "orchestrator", _now_iso(),
+            {"run_id": run_id, "verdict": verdict,
+             "findings_count": len(findings),
+             "agents": list(self.TASK_AGENTS[kind])})
         return AgentReport(run_id=run_id, task_kind=kind,
                            project_id=self.project.project_id,
                            verdict=verdict, summaries=summaries,
                            findings=findings)
+
+    def _append_event(self, event_type: str, agent_id: str,
+                      timestamp: str, payload: dict) -> dict:
+        """Append one signed agent event to the project ledger."""
+        actor = self._agent_actor(agent_id)
+        return self.project.ledger.append(
+            event_type, actor.actor_id, actor.secret_key,
+            timestamp=timestamp, payload=payload)
 
     def _run_agent(self, agent_id: str) -> tuple[list[Finding], str]:
         """Run one specialist. Returns (findings, one-line summary)."""

@@ -5,13 +5,16 @@ Orchestrator: dispatching a task to the right specialists and merging
 their findings into one report, with Verity re-verifying the ledger
 for real and the other specialists honest about not being built yet."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from prooftrail.agents import (
     Orchestrator,
     get_role,
     list_roles,
 )
+from prooftrail.persistence import load_state, save_state
 from prooftrail.store import Actor, Project
 
 
@@ -131,6 +134,83 @@ class TestOrchestrator(unittest.TestCase):
         first = orch.run({"kind": "verify_project"})
         second = orch.run({"kind": "verify_project"})
         self.assertNotEqual(first.run_id, second.run_id)
+
+
+class TestAgentLedgerEvents(unittest.TestCase):
+    def _run(self, project):
+        return Orchestrator(project).run({"kind": "verify_project"})
+
+    def _agent_events(self, project):
+        return [e for e in project.ledger.events
+                if e["type"].startswith("agent_")]
+
+    def test_run_records_signed_events_on_ledger(self):
+        project = _project_with_version()
+        report = self._run(project)
+        events = self._agent_events(project)
+        kinds = [e["type"] for e in events]
+        self.assertEqual(kinds[0], "agent_run_started")
+        self.assertEqual(kinds[-1], "agent_run_finished")
+        self.assertEqual(kinds.count("agent_finding"),
+                         len(report.findings))
+        # Every agent event is signed by its own namespaced actor.
+        actors = {e["actor"] for e in events}
+        self.assertIn("agent:orchestrator", actors)
+        self.assertIn("agent:verifier", actors)
+        # The run is still fully verifiable after recording it.
+        self.assertEqual(project.verify(), [])
+
+    def test_started_and_finished_carry_the_run_id(self):
+        project = _project_with_version()
+        report = self._run(project)
+        events = self._agent_events(project)
+        started = next(e for e in events
+                       if e["type"] == "agent_run_started")
+        finished = next(e for e in events
+                        if e["type"] == "agent_run_finished")
+        self.assertEqual(started["payload"]["run_id"], report.run_id)
+        self.assertEqual(finished["payload"]["run_id"], report.run_id)
+        self.assertEqual(finished["payload"]["verdict"], report.verdict)
+        self.assertEqual(finished["payload"]["findings_count"],
+                         len(report.findings))
+
+    def test_tampered_agent_finding_fails_verification(self):
+        project = _project_with_version()
+        self._run(project)
+        finding = next(e for e in project.ledger.events
+                       if e["type"] == "agent_finding")
+        finding["payload"]["message"] = "all clear, nothing to see here"
+        self.assertNotEqual(project.verify(), [])
+
+    def test_tampered_run_finished_fails_verification(self):
+        project = _project_with_version()
+        self._run(project)
+        finished = next(e for e in project.ledger.events
+                        if e["type"] == "agent_run_finished")
+        finished["payload"]["verdict"] = "clean"
+        self.assertNotEqual(project.verify(), [])
+
+    def test_agent_actors_are_registered_on_the_ledger(self):
+        project = _project_with_version()
+        self._run(project)
+        self.assertIn("agent:verifier",
+                      project.ledger._public_keys)
+        self.assertIn("agent:orchestrator",
+                      project.ledger._public_keys)
+
+    def test_agent_events_survive_save_and_load(self):
+        project = _project_with_version()
+        self._run(project)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(path, {}, {"proj-1": project})
+            _, loaded = load_state(path)
+            reloaded = loaded["proj-1"]
+            self.assertEqual(reloaded.verify(), [])
+            kinds = [e["type"] for e in reloaded.ledger.events]
+            self.assertIn("agent_run_started", kinds)
+            self.assertIn("agent_finding", kinds)
+            self.assertIn("agent_run_finished", kinds)
 
 
 if __name__ == "__main__":
