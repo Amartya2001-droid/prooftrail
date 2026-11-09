@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .auth import UserRecord
 from .ledger import Ledger
-from .store import Actor, Project, Version
+from .store import Actor, AgentRun, Project, Version
 
 
 def project_to_dict(project: Project) -> dict:
@@ -47,6 +47,9 @@ def project_to_dict(project: Project) -> dict:
             for v in project.versions
         ],
         "events": project.ledger.events,
+        # Durable agent run log; states written before it default
+        # to an empty log.
+        "agent_runs": [r.to_dict() for r in project.agent_runs],
         "collaborators": [
             {"actor_id": a.actor_id, "name": a.name,
              "public_key": a.public_key.hex()}
@@ -97,6 +100,8 @@ def project_from_dict(data: dict) -> Project:
     ledger = Ledger(data["project_id"])
     ledger.events = data["events"]
     project.ledger = ledger
+    project.agent_runs = [AgentRun.from_dict(r)
+                          for r in data.get("agent_runs", [])]
     for collab in data["collaborators"]:
         actor = Actor(collab["actor_id"], collab["name"], b"",
                       bytes.fromhex(collab["public_key"]))

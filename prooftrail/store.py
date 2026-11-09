@@ -41,6 +41,50 @@ class Version:
     size: int = 0
 
 
+@dataclass
+class AgentRun:
+    """One orchestrated agent run, as recorded in the project store.
+
+    The run log is the durable counterpart of the signed ledger
+    events: the ledger proves what the agents did, the log makes
+    runs listable without replaying the chain.
+    """
+
+    run_id: str
+    task_kind: str
+    project_id: str
+    agents: list[str] = field(default_factory=list)
+    status: str = "finished"
+    findings_count: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "task_kind": self.task_kind,
+            "project_id": self.project_id,
+            "agents": list(self.agents),
+            "status": self.status,
+            "findings_count": self.findings_count,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentRun":
+        return cls(
+            run_id=data["run_id"],
+            task_kind=data["task_kind"],
+            project_id=data["project_id"],
+            agents=list(data.get("agents", [])),
+            status=data.get("status", "finished"),
+            findings_count=data.get("findings_count", 0),
+            started_at=data.get("started_at", ""),
+            finished_at=data.get("finished_at", ""),
+        )
+
+
 class Project:
     """A single ProofTrail project: files, versions, ledger."""
 
@@ -51,6 +95,8 @@ class Project:
         self._blobs: dict[str, bytes] = {}
         self.versions: list[Version] = []
         self.collaborators: dict[str, Actor] = {}
+        # Durable log of orchestrated agent runs on this project.
+        self.agent_runs: list[AgentRun] = []
         # Who may invite new collaborators: the first collaborator
         # added (the creator). Set explicitly by the server, or
         # inferred from the first add for direct store use.
@@ -224,6 +270,10 @@ class Project:
                 sentence_indices=list(payload.get("sentence_indices", [])),
             ))
         return found
+
+    def record_agent_run(self, run: AgentRun) -> None:
+        """Append a finished agent run to the project's run log."""
+        self.agent_runs.append(run)
 
     def read(self, version: Version) -> bytes:
         return self._blobs[version.content_id]

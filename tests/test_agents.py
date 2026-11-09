@@ -15,7 +15,7 @@ from prooftrail.agents import (
     list_roles,
 )
 from prooftrail.persistence import load_state, save_state
-from prooftrail.store import Actor, Project
+from prooftrail.store import Actor, AgentRun, Project
 
 
 def _project_with_version() -> Project:
@@ -211,6 +211,44 @@ class TestAgentLedgerEvents(unittest.TestCase):
             self.assertIn("agent_run_started", kinds)
             self.assertIn("agent_finding", kinds)
             self.assertIn("agent_run_finished", kinds)
+
+
+class TestAgentRunLog(unittest.TestCase):
+    def test_run_record_round_trips(self):
+        run = AgentRun(
+            run_id="run-abc", task_kind="verify_project",
+            project_id="proj-1", agents=["verifier"],
+            status="finished", findings_count=2,
+            started_at="2026-11-09T00:00:00+00:00",
+            finished_at="2026-11-09T00:00:01+00:00")
+        restored = AgentRun.from_dict(run.to_dict())
+        self.assertEqual(restored, run)
+
+    def test_orchestrator_records_the_run(self):
+        project = _project_with_version()
+        report = Orchestrator(project).run({"kind": "verify_project"})
+        self.assertEqual(len(project.agent_runs), 1)
+        run = project.agent_runs[0]
+        self.assertEqual(run.run_id, report.run_id)
+        self.assertEqual(run.task_kind, "verify_project")
+        self.assertEqual(run.project_id, "proj-1")
+        self.assertEqual(run.status, "finished")
+        self.assertEqual(run.findings_count, len(report.findings))
+        self.assertEqual(run.agents,
+                         ["verifier", "detective", "narrator"])
+        self.assertTrue(run.started_at)
+        self.assertTrue(run.finished_at)
+
+    def test_run_log_survives_save_and_load(self):
+        project = _project_with_version()
+        report = Orchestrator(project).run({"kind": "verify_project"})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(path, {}, {"proj-1": project})
+            _, loaded = load_state(path)
+            runs = loaded["proj-1"].agent_runs
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(runs[0].run_id, report.run_id)
 
 
 if __name__ == "__main__":

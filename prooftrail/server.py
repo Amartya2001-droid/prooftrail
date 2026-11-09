@@ -32,6 +32,8 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - GET  /api/projects/<id>/versions
 - GET  /api/projects/<id>/versions/content?content_id=sha256:...
 - GET  /api/projects/<id>/verify      (verification page: hashes, no text)
+- GET  /api/agents/runs               (agent runs across own projects)
+- GET  /api/projects/<id>/agents/runs (agent runs on one project)
 - POST /api/bundles/verify            (verify a signed bundle; no auth)
 
 Run: python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
@@ -151,6 +153,10 @@ OPENAPI_SPEC = {
             "get": {"summary": "Download one version's bytes"}},
         "/api/projects/{id}/events": {
             "get": {"summary": "Ledger events, newest first, paged"}},
+        "/api/agents/runs": {
+            "get": {"summary": "Agent runs across own projects, paged"}},
+        "/api/projects/{id}/agents/runs": {
+            "get": {"summary": "Agent runs on one project, paged"}},
         "/api/projects/{id}/verify": {
             "get": {"summary": "Verification page: hashes, no text"}},
         "/api/projects/{id}/export": {
@@ -1161,6 +1167,39 @@ class ProofTrailApp:
             return {"events": events[offset:offset + limit],
                     "total": len(events), "limit": limit, "offset": offset}
 
+    def agent_runs_for_project(self, token: str | None, project_id: str,
+                                limit: int = 50, offset: int = 0) -> dict:
+        """Agent runs recorded on one project, newest first, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            runs = [r.to_dict() for r in reversed(project.agent_runs)]
+            return {"runs": runs[offset:offset + limit],
+                    "total": len(runs), "limit": limit, "offset": offset}
+
+    def agent_runs(self, token: str | None,
+                   limit: int = 50, offset: int = 0) -> dict:
+        """Agent runs across every project the caller collaborates
+        on, newest first, paged."""
+        if not 1 <= limit <= 200:
+            raise ApiError(400, "limit must be between 1 and 200")
+        if offset < 0:
+            raise ApiError(400, "offset must not be negative")
+        with self._lock:
+            actor = self._actor_for_token(token)
+            runs = []
+            for project in self.projects.values():
+                if actor.actor_id in project.collaborators:
+                    runs.extend(r.to_dict()
+                                for r in project.agent_runs)
+            runs.sort(key=lambda r: r["started_at"], reverse=True)
+            return {"runs": runs[offset:offset + limit],
+                    "total": len(runs), "limit": limit, "offset": offset}
+
     def export(self, token: str | None, project_id: str,
                claim: str = "") -> dict:
         """A signed evidence bundle for the whole project, downloadable
@@ -1430,6 +1469,13 @@ def make_handler(app: ProofTrailApp):
                     and parts[3] == "events"):
                 return 200, app.events(token, parts[2],
                                        *_parse_paging(query))
+            if method == "GET" and parts == ["api", "agents", "runs"]:
+                return 200, app.agent_runs(token, *_parse_paging(query))
+            if (method == "GET" and len(parts) == 5
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "agents" and parts[4] == "runs"):
+                return 200, app.agent_runs_for_project(
+                    token, parts[2], *_parse_paging(query))
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "verify"):

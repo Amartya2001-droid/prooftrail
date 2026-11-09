@@ -26,7 +26,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from .store import Actor, Project
+from .store import Actor, AgentRun, Project
 
 
 def _now_iso() -> str:
@@ -207,11 +207,18 @@ class Orchestrator:
                  "message": finding.message,
                  "evidence": finding.evidence,
                  "status": finding.status})
+        finished_at = _now_iso()
         self._append_event(
-            "agent_run_finished", "orchestrator", _now_iso(),
+            "agent_run_finished", "orchestrator", finished_at,
             {"run_id": run_id, "verdict": verdict,
              "findings_count": len(findings),
              "agents": list(self.TASK_AGENTS[kind])})
+        self.project.record_agent_run(AgentRun(
+            run_id=run_id, task_kind=kind,
+            project_id=self.project.project_id,
+            agents=list(self.TASK_AGENTS[kind]), status="finished",
+            findings_count=len(findings), started_at=started_at,
+            finished_at=finished_at))
         return AgentReport(run_id=run_id, task_kind=kind,
                            project_id=self.project.project_id,
                            verdict=verdict, summaries=summaries,
