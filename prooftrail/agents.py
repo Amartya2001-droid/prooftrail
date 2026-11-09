@@ -22,7 +22,10 @@ The five roles:
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass, field
+
+from .store import Project
 
 
 @dataclass(frozen=True)
@@ -86,3 +89,130 @@ def get_role(agent_id: str) -> AgentRole:
 def list_roles() -> list[AgentRole]:
     """All registered roles, in registry order."""
     return list(ROLES)
+
+
+# -- findings and reports ---------------------------------------------------
+
+@dataclass
+class Finding:
+    """One thing an agent found while working a project.
+
+    ``status`` is "complete" for a real result and "not_implemented"
+    for a specialist whose work is still a stub: a stub never fakes
+    a result, it says so plainly.
+    """
+
+    agent_id: str
+    severity: str  # "info" | "low" | "medium" | "high"
+    message: str
+    evidence: list[str] = field(default_factory=list)
+    status: str = "complete"
+
+
+@dataclass
+class AgentReport:
+    """What an orchestrated agent run concluded, in one object."""
+
+    run_id: str
+    task_kind: str
+    project_id: str
+    verdict: str  # "clean" | "issues_found" | "incomplete"
+    summaries: dict[str, str]  # agent_id -> one-line summary
+    findings: list[Finding] = field(default_factory=list)
+
+
+# -- orchestrator -----------------------------------------------------------
+
+class Orchestrator:
+    """Dispatches a task to the right specialist agents, in order,
+    and merges their findings into one AgentReport.
+
+    The orchestrator itself (Trailboss) never judges content: it
+    picks the team for the task kind, runs each specialist, and
+    derives the verdict from what they return. Verity re-verifies
+    the ledger for real; the other specialists are honest stubs
+    until their Day 2 work lands.
+    """
+
+    # Which specialists work each kind of task, in run order.
+    TASK_AGENTS: dict[str, tuple[str, ...]] = {
+        "verify_project": ("verifier", "detective", "narrator"),
+        "build_dispute_case": ("verifier", "detective", "cartographer",
+                               "narrator"),
+    }
+
+    def __init__(self, project: Project) -> None:
+        self.project = project
+
+    def run(self, task: dict) -> AgentReport:
+        """Run a task and return the merged report.
+
+        ``task`` needs a "kind" this orchestrator knows; if it also
+        carries a "project_id" it must name this project.
+        """
+        kind = task.get("kind")
+        if kind not in self.TASK_AGENTS:
+            raise ValueError(f"unknown agent task kind: {kind!r}")
+        if (task.get("project_id") is not None
+                and task["project_id"] != self.project.project_id):
+            raise ValueError(
+                f"task project {task['project_id']!r} does not match "
+                f"project {self.project.project_id!r}")
+        run_id = "run-" + secrets.token_hex(8)
+        findings: list[Finding] = []
+        summaries: dict[str, str] = {}
+        for agent_id in self.TASK_AGENTS[kind]:
+            agent_findings, summary = self._run_agent(agent_id)
+            findings.extend(agent_findings)
+            summaries[agent_id] = summary
+        verdict = self._verdict(findings)
+        return AgentReport(run_id=run_id, task_kind=kind,
+                           project_id=self.project.project_id,
+                           verdict=verdict, summaries=summaries,
+                           findings=findings)
+
+    def _run_agent(self, agent_id: str) -> tuple[list[Finding], str]:
+        """Run one specialist. Returns (findings, one-line summary)."""
+        if agent_id == "verifier":
+            return self._run_verifier()
+        if agent_id in ("detective", "cartographer", "narrator"):
+            return self._run_stub(agent_id)
+        raise ValueError(f"unknown agent: {agent_id!r}")
+
+    def _run_verifier(self) -> tuple[list[Finding], str]:
+        """Verity re-verifies the project's ledger for real."""
+        problems = self.project.verify()
+        count = len(self.project.ledger.events)
+        if not problems:
+            return ([Finding(
+                "verifier", "info",
+                f"Ledger verified: {count} events, chain and "
+                "signatures valid.",
+                evidence=[f"ledger events: {count}"])],
+                f"Verified ledger: {count} events, no problems.")
+        return ([Finding("verifier", "high", problem,
+                         evidence=["ledger chain"])
+                 for problem in problems],
+                f"Found {len(problems)} ledger problem(s).")
+
+    def _run_stub(self, agent_id: str) -> tuple[list[Finding], str]:
+        """A specialist whose work is not implemented yet.
+
+        The finding says so explicitly instead of inventing a
+        result: an honest gap beats a fabricated all-clear.
+        """
+        role = get_role(agent_id)
+        return ([Finding(
+            agent_id, "info",
+            f"{role.name} ({role.role}) is not yet implemented "
+            "for this project.",
+            status="not_implemented")],
+            "Not yet implemented.")
+
+    @staticmethod
+    def _verdict(findings: list[Finding]) -> str:
+        if any(f.severity == "high" for f in findings):
+            return "issues_found"
+        if any(f.status == "not_implemented" for f in findings):
+            return "incomplete"
+        return "clean"
