@@ -58,6 +58,13 @@ python3 -m unittest discover -s tests -v
 python3 demo/designer_scenario.py
 ```
 
+The agent-team scenario builds a disputed announcement and runs
+both agent tasks on it:
+
+```sh
+python3 demo/agent_team_scenario.py
+```
+
 ## Web UI
 
 The server serves a small web UI itself, no build step. Start it
@@ -73,6 +80,44 @@ document content), the diff viewer, AI-use declarations with the
 contribution map, and evidence-bundle export with sessions and the
 authentication audit. The session token is kept in sessionStorage
 only, so closing the tab signs the browser out.
+
+## Agent team
+
+Five named specialists work a project when you run the team, from
+the Agent team tab or from `POST /api/projects/<id>/agents/run`
+with `{"kind": "verify_project"}` or
+`{"kind": "build_dispute_case"}`:
+
+- **Trailboss** (orchestrator) — picks the team for the task and
+  merges their findings into one report.
+- **Verity** (verifier) — re-verifies hash chains, signatures and
+  timestamps, one finding per version plus one for the chain.
+- **Sleuth** (detective) — hunts sudden rewrites, authorship flips,
+  undeclared AI use and timeline gaps, from sentence diffs and the
+  declarations on record.
+- **Mapper** (cartographer) — maps who wrote what, per version and
+  per actor: human vs AI-assisted vs imported segments.
+- **Scribe** (narrator) — turns the team's evidence into a
+  plain-language proof narrative.
+
+Every run writes signed events into the project's ledger as it
+happens (started, one per finding, finished), so a run's findings
+are tamper-evident like everything else, and the run is recorded
+in the run log. The Agent team tab also shows a live activity
+feed: the newest ledger events and agent runs merged into one
+timeline, polling every 10 seconds while the tab is open — the
+server speaks plain HTTP and has no push channel.
+
+Honest limits, stated where they matter: the verdict is "clean"
+unless a finding is high severity, so a flagged rewrite alone
+does not escalate it. Sleuth's undeclared-addition finding is not
+proof of AI use — it only means no AI use was declared. Scribe's
+narrative is deterministic template text built from the team's
+findings, not LLM reasoning. Imported and external shares in the
+contribution map are 0% because the project stores no explicit
+tagging for them yet — a gap in the record, not proof none exist.
+And the app is still localhost-only with no TLS of its own; see
+Deploying below.
 
 ## Deploying (not deployed yet)
 
