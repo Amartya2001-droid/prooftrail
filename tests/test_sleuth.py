@@ -79,7 +79,8 @@ class TestSleuthRewritesAndFlips(unittest.TestCase):
         # 2 anomalies: the rewrite itself plus the 4 added sentences
         # with no declaration on record.
         self.assertIn("2 anomaly", report.summaries["detective"])
-        self.assertEqual(report.verdict, "incomplete")  # narrator stub
+        # Medium findings do not escalate the verdict past clean.
+        self.assertEqual(report.verdict, "clean")
 
     def test_authorship_flip_is_flagged(self):
         project, actors = _project()

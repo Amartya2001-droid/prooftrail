@@ -74,8 +74,8 @@ class TestOrchestrator(unittest.TestCase):
         project = _project_with_version()
         report = Orchestrator(project).run(
             {"kind": "verify_project", "project_id": "proj-1"})
-        # Stubs are honest, so a clean ledger still reads incomplete.
-        self.assertEqual(report.verdict, "incomplete")
+        # All specialists do real work now, so a clean ledger reads clean.
+        self.assertEqual(report.verdict, "clean")
         self.assertEqual(report.task_kind, "verify_project")
         self.assertEqual(report.project_id, "proj-1")
         self.assertTrue(report.run_id.startswith("run-"))
@@ -111,31 +111,23 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(set(report.summaries),
                          {"verifier", "detective", "cartographer",
                           "narrator"})
-        self.assertEqual(report.verdict, "incomplete")
+        self.assertEqual(report.verdict, "clean")
 
-    def test_stub_findings_are_marked_not_implemented(self):
+    def test_no_stub_findings_remain(self):
+        """Day 2 finished the specialists: no finding is a stub."""
         project = _project_with_version()
-        report = Orchestrator(project).run({"kind": "verify_project"})
-        stubs = [f for f in report.findings if f.agent_id == "narrator"]
-        self.assertTrue(stubs)
-        for finding in stubs:
-            self.assertEqual(finding.status, "not_implemented")
-            self.assertIn("not yet implemented", finding.message)
-        # Sleuth is real now: its finding is complete.
-        detective = [f for f in report.findings
-                     if f.agent_id == "detective"]
-        self.assertTrue(detective)
-        self.assertTrue(all(f.status == "complete" for f in detective))
-        # Mapper is real now too: only the narrator is still a stub.
-        dispute = Orchestrator(project).run(
-            {"kind": "build_dispute_case"})
-        mapper = [f for f in dispute.findings
-                  if f.agent_id == "cartographer"]
-        self.assertTrue(mapper)
-        self.assertTrue(all(f.status == "complete" for f in mapper))
-        self.assertTrue(all(f.status == "not_implemented"
-                            for f in dispute.findings
-                            if f.agent_id == "narrator"))
+        for kind in ("verify_project", "build_dispute_case"):
+            report = Orchestrator(project).run({"kind": kind})
+            self.assertTrue(report.findings)
+            self.assertFalse(any(
+                f.status == "not_implemented" for f in report.findings))
+            self.assertTrue(all(
+                f.status == "complete" for f in report.findings))
+        narrator = [f for f in report.findings
+                    if f.agent_id == "narrator"]
+        self.assertEqual(len(narrator), 1)
+        self.assertIn("Brand deck", narrator[0].message)
+        self.assertIn("checks out", narrator[0].message)
 
     def test_unknown_kind_raises(self):
         project = _project_with_version()
@@ -207,7 +199,7 @@ class TestAgentLedgerEvents(unittest.TestCase):
         self._run(project)
         finished = next(e for e in project.ledger.events
                         if e["type"] == "agent_run_finished")
-        finished["payload"]["verdict"] = "clean"
+        finished["payload"]["verdict"] = "issues_found"
         self.assertNotEqual(project.verify(), [])
 
     def test_agent_actors_are_registered_on_the_ledger(self):

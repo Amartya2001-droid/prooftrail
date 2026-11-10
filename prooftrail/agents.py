@@ -235,6 +235,33 @@ def _version_events(project: Project) -> list[dict]:
             if e["type"] in ("upload", "edit", "restore")]
 
 
+def _fmt_date(value: str) -> str:
+    """An ISO timestamp as a plain date, or the raw value if unusable."""
+    ts = _parse_timestamp(value)
+    if ts is None:
+        return value or "an unknown date"
+    return f"{ts.day} {ts.strftime('%B %Y')}"
+
+
+def _change_phrase(diff, label: str) -> str:
+    """One plain-language clause describing a version transition."""
+    if diff.intent == "rewrite":
+        return (f"version {label!r} rewrote most of the document "
+                f"({len(diff.added)} sentences added, "
+                f"{len(diff.removed)} removed)")
+    if diff.intent == "expansion":
+        return (f"version {label!r} expanded the document "
+                f"({len(diff.added)} sentences added)")
+    if diff.intent == "tightening":
+        return (f"version {label!r} tightened the document "
+                f"({len(diff.removed)} sentences removed)")
+    if diff.intent == "rewording":
+        return (f"version {label!r} reworded the document "
+                f"({len(diff.added)} added, {len(diff.removed)} removed)")
+    return (f"version {label!r} made small edits "
+            f"({len(diff.added)} added, {len(diff.removed)} removed)")
+
+
 # -- orchestrator -----------------------------------------------------------
 
 class Orchestrator:
@@ -243,10 +270,10 @@ class Orchestrator:
 
     The orchestrator itself (Trailboss) never judges content: it
     picks the team for the task kind, runs each specialist, and
-    derives the verdict from what they return. Verity re-verifies
-    the ledger per version for real, Sleuth hunts anomalies for
-    real, and Mapper maps contributions for real; the narrator is
-    an honest stub until its Day 2 work lands.
+    derives the verdict from what they return. All five specialists
+    do real work now: Verity re-verifies the ledger per version,
+    Sleuth hunts anomalies, Mapper maps contributions, and Scribe
+    narrates the team's findings in plain language.
     """
 
     # Which specialists work each kind of task, in run order.
@@ -306,7 +333,7 @@ class Orchestrator:
         findings: list[Finding] = []
         summaries: dict[str, str] = {}
         for agent_id in self.TASK_AGENTS[kind]:
-            agent_findings, summary = self._run_agent(agent_id)
+            agent_findings, summary = self._run_agent(agent_id, findings)
             findings.extend(agent_findings)
             summaries[agent_id] = summary
         verdict = self._verdict(findings)
@@ -342,8 +369,15 @@ class Orchestrator:
             event_type, actor.actor_id, actor.secret_key,
             timestamp=timestamp, payload=payload)
 
-    def _run_agent(self, agent_id: str) -> tuple[list[Finding], str]:
-        """Run one specialist. Returns (findings, one-line summary)."""
+    def _run_agent(self, agent_id: str,
+                   prior_findings: list[Finding] | None = None
+                   ) -> tuple[list[Finding], str]:
+        """Run one specialist. Returns (findings, one-line summary).
+
+        ``prior_findings`` are the findings the team has produced so
+        far in this run; only the narrator uses them, to write about
+        what the others found.
+        """
         if agent_id == "verifier":
             return self._run_verifier()
         if agent_id == "detective":
@@ -351,8 +385,110 @@ class Orchestrator:
         if agent_id == "cartographer":
             return self._run_cartographer()
         if agent_id == "narrator":
-            return self._run_stub(agent_id)
+            return self._run_narrator(prior_findings or [])
         raise ValueError(f"unknown agent: {agent_id!r}")
+
+    def _actor_name(self, actor_id: str) -> str:
+        """A collaborator's display name, or the id if unknown."""
+        actor = self.project.collaborators.get(actor_id)
+        return actor.name if actor is not None else actor_id
+
+    def _run_narrator(self, prior_findings: list[Finding]
+                      ) -> tuple[list[Finding], str]:
+        """Scribe writes the plain-language proof narrative.
+
+        It runs last, so it narrates what the team found: Verity's
+        verification, the change history, who wrote what, and
+        anything Sleuth flagged — in words a non-technical reader
+        can follow, with the honest caveats about what the record
+        cannot prove.
+        """
+        project = self.project
+        versions = project.versions
+        texts = _version_texts(project)
+        paragraphs: list[str] = []
+        actors = sorted({v.actor_id for v in versions})
+        actor_names = ", ".join(self._actor_name(a) for a in actors)
+        if not versions:
+            paragraphs.append(
+                f"This project, {project.title!r}, has no versions yet, "
+                "so there is no history to describe.")
+        else:
+            first = _fmt_date(versions[0].timestamp)
+            last = _fmt_date(versions[-1].timestamp)
+            when = (f"on {first}" if first == last
+                    else f"between {first} and {last}")
+            paragraphs.append(
+                f"This project, {project.title!r}, has "
+                f"{len(versions)} version(s), written by {actor_names} "
+                f"{when}.")
+        verifier_bad = [f for f in prior_findings
+                        if f.agent_id == "verifier"
+                        and f.severity == "high"]
+        event_count = len(project.ledger.events)
+        if not verifier_bad:
+            paragraphs.append(
+                f"The record checks out: the ledger's {event_count} "
+                "events all verified, with hashes and signatures "
+                "valid, and each version's content matches its hash.")
+        else:
+            details = []
+            for f in verifier_bad:
+                detail = f.message
+                if f.evidence:
+                    detail += " (" + "; ".join(f.evidence) + ")"
+                details.append(detail)
+            paragraphs.append(
+                "The record has problems — Verity found "
+                f"{len(verifier_bad)}: " + "; ".join(details))
+        if len(versions) >= 2:
+            changes = [_change_phrase(
+                diff_texts(texts[i - 1], texts[i]), versions[i].label)
+                for i in range(1, len(versions))]
+            paragraphs.append("Here is how the document changed: "
+                              + "; ".join(changes) + ".")
+        elif versions:
+            paragraphs.append("It has a single version, so there is no "
+                              "change history to describe.")
+        if versions:
+            cmap = build_map(
+                [(v.label, t) for v, t in zip(versions, texts)],
+                project.declarations())
+            coverage = cmap.coverage()
+            tools = sorted({d.tool for d in project.declarations()})
+            tool_note = (f" ({', '.join(tools)}, as declared)"
+                         if tools else "")
+            paragraphs.append(
+                "About the writing itself: "
+                f"{coverage['human']:.0f}% of the text is human-written "
+                "and "
+                f"{coverage['ai-assisted']:.0f}% was written with AI "
+                f"help{tool_note}. No AI use was declared for the "
+                "rest, which means none was declared — not that none "
+                "happened.")
+        flagged = [f for f in prior_findings
+                   if f.agent_id == "detective" and f.severity != "info"]
+        if flagged:
+            paragraphs.append(
+                "Things that stood out: "
+                + " ".join(f.message for f in flagged))
+        else:
+            paragraphs.append("Nothing unusual stood out in the history.")
+        paragraphs.append(
+            "A note on what this proves: the ledger proves the history "
+            "was not rewritten afterwards, and the declarations record "
+            "what the writers chose to disclose. It cannot prove how "
+            "any sentence was first written.")
+        narrative = "\n\n".join(paragraphs)
+        return ([Finding("narrator", "info", narrative,
+                         evidence=[
+                             f"versions: {len(versions)}",
+                             f"ledger events: {event_count}",
+                             "verification problems: "
+                             f"{len(verifier_bad)}",
+                             f"anomalies flagged: {len(flagged)}",
+                         ])],
+                "Wrote a plain-language proof narrative.")
 
     def _run_verifier(self) -> tuple[list[Finding], str]:
         """Verity re-verifies the project's ledger for real, per version.
@@ -655,20 +791,6 @@ class Orchestrator:
                    f"{coverage['human']:.0f}% human, "
                    f"{coverage['ai-assisted']:.0f}% AI-assisted.")
         return findings, summary
-
-    def _run_stub(self, agent_id: str) -> tuple[list[Finding], str]:
-        """A specialist whose work is not implemented yet.
-
-        The finding says so explicitly instead of inventing a
-        result: an honest gap beats a fabricated all-clear.
-        """
-        role = get_role(agent_id)
-        return ([Finding(
-            agent_id, "info",
-            f"{role.name} ({role.role}) is not yet implemented "
-            "for this project.",
-            status="not_implemented")],
-            "Not yet implemented.")
 
     @staticmethod
     def _verdict(findings: list[Finding]) -> str:
