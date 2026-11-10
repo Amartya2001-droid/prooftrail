@@ -83,10 +83,16 @@ class TestOrchestrator(unittest.TestCase):
                          {"verifier", "detective", "narrator"})
         verity = [f for f in report.findings
                   if f.agent_id == "verifier"]
-        self.assertEqual(len(verity), 1)
-        self.assertEqual(verity[0].status, "complete")
-        self.assertEqual(verity[0].severity, "info")
-        self.assertIn("Ledger verified", verity[0].message)
+        # Verity reports per version plus one chain finding.
+        self.assertEqual(len(verity), 2)
+        chain, version = verity
+        self.assertEqual(chain.status, "complete")
+        self.assertEqual(chain.severity, "info")
+        self.assertIn("Ledger chain verified", chain.message)
+        self.assertEqual(version.status, "complete")
+        self.assertEqual(version.severity, "info")
+        self.assertIn("'v1'", version.message)
+        self.assertIn("content hash matches", version.message)
 
     def test_verify_project_finds_tampered_ledger(self):
         project = _project_with_version()

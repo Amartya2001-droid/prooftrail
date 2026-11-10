@@ -126,6 +126,88 @@ class AgentReport:
     findings: list[Finding] = field(default_factory=list)
 
 
+# -- Verity: deep verification ----------------------------------------------
+
+def _parse_timestamp(value: str):
+    """Parse an ISO timestamp, tolerating a trailing Z. None if unusable."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _attribute_problems(problems: list[str]) -> tuple[
+        dict[int, list[str]], dict[int, list[str]], list[str]]:
+    """Split project.verify() problems by event / version index.
+
+    Ledger problems start "event {i}:" and version problems start
+    "version {i}:"; anything else is unattributed and belongs to the
+    chain finding. Returns (event_problems, version_problems, other).
+    """
+    event_problems: dict[int, list[str]] = {}
+    version_problems: dict[int, list[str]] = {}
+    other: list[str] = []
+    for problem in problems:
+        matched = False
+        for prefix, bucket in (("event ", event_problems),
+                               ("version ", version_problems)):
+            if problem.startswith(prefix):
+                rest = problem[len(prefix):]
+                index_str, _, _ = rest.partition(":")
+                if index_str.isdigit():
+                    bucket.setdefault(int(index_str), []).append(problem)
+                    matched = True
+                    break
+        if not matched:
+            other.append(problem)
+    return event_problems, version_problems, other
+
+
+def _timestamp_problems(project: Project) -> tuple[
+        dict[int, list[str]], dict[int, list[str]]]:
+    """Timestamp checks project.verify() does not do.
+
+    Event timestamps must parse and never run backwards along the
+    chain; a version must not be timestamped before its parent.
+    Empty timestamps are skipped: some event types record none.
+    Returns (event_problems, version_problems) keyed by index.
+    """
+    event_problems: dict[int, list[str]] = {}
+    prev_ts = None
+    for i, event in enumerate(project.ledger.events):
+        raw = event.get("timestamp", "")
+        if not raw:
+            continue
+        ts = _parse_timestamp(raw)
+        if ts is None:
+            event_problems.setdefault(i, []).append(
+                f"event {i}: timestamp {raw!r} is not a valid ISO "
+                "timestamp")
+            continue
+        if prev_ts is not None and ts < prev_ts:
+            event_problems.setdefault(i, []).append(
+                f"event {i}: timestamp is earlier than the previous "
+                "event's timestamp")
+        prev_ts = ts
+    version_problems: dict[int, list[str]] = {}
+    prev_ts = None
+    for i, version in enumerate(project.versions):
+        ts = _parse_timestamp(version.timestamp)
+        if ts is None:
+            version_problems.setdefault(i, []).append(
+                f"version {i} ({version.label!r}): timestamp "
+                f"{version.timestamp!r} is not a valid ISO timestamp")
+            continue
+        if prev_ts is not None and ts < prev_ts:
+            version_problems.setdefault(i, []).append(
+                f"version {i} ({version.label!r}): timestamp is "
+                "earlier than the previous version's timestamp")
+        prev_ts = ts
+    return event_problems, version_problems
+
+
 # -- orchestrator -----------------------------------------------------------
 
 class Orchestrator:
@@ -135,8 +217,8 @@ class Orchestrator:
     The orchestrator itself (Trailboss) never judges content: it
     picks the team for the task kind, runs each specialist, and
     derives the verdict from what they return. Verity re-verifies
-    the ledger for real; the other specialists are honest stubs
-    until their Day 2 work lands.
+    the ledger per version for real; the other specialists are
+    honest stubs until their Day 2 work lands.
     """
 
     # Which specialists work each kind of task, in run order.
@@ -241,20 +323,68 @@ class Orchestrator:
         raise ValueError(f"unknown agent: {agent_id!r}")
 
     def _run_verifier(self) -> tuple[list[Finding], str]:
-        """Verity re-verifies the project's ledger for real."""
+        """Verity re-verifies the project's ledger for real, per version.
+
+        One finding per version (content hash, parent link,
+        timestamp) plus one for the ledger chain itself (hashes,
+        signatures, event order), so a failure names exactly where
+        it is instead of a single pass/fail for the whole project.
+        """
         problems = self.project.verify()
-        count = len(self.project.ledger.events)
-        if not problems:
-            return ([Finding(
+        event_problems, version_problems, other = _attribute_problems(
+            problems)
+        event_ts, version_ts = _timestamp_problems(self.project)
+        for index, items in event_ts.items():
+            event_problems.setdefault(index, []).extend(items)
+        for index, items in version_ts.items():
+            version_problems.setdefault(index, []).extend(items)
+
+        findings: list[Finding] = []
+        event_count = len(self.project.ledger.events)
+        chain_problems = [
+            p for items in event_problems.values() for p in items
+        ] + other
+        if not chain_problems:
+            findings.append(Finding(
                 "verifier", "info",
-                f"Ledger verified: {count} events, chain and "
-                "signatures valid.",
-                evidence=[f"ledger events: {count}"])],
-                f"Verified ledger: {count} events, no problems.")
-        return ([Finding("verifier", "high", problem,
-                         evidence=["ledger chain"])
-                 for problem in problems],
-                f"Found {len(problems)} ledger problem(s).")
+                f"Ledger chain verified: {event_count} events, hashes "
+                "and signatures valid, timestamps in order.",
+                evidence=[f"ledger events: {event_count}"]))
+        else:
+            findings.append(Finding(
+                "verifier", "high",
+                f"Ledger chain has {len(chain_problems)} problem(s).",
+                evidence=chain_problems))
+        for i, version in enumerate(self.project.versions):
+            faults = version_problems.get(i, [])
+            short = version.content_id[:12]
+            if not faults:
+                findings.append(Finding(
+                    "verifier", "info",
+                    f"Version {version.label!r} ({short}…): content "
+                    "hash matches, parent link correct, timestamp "
+                    "valid.",
+                    evidence=[
+                        f"content_id: {version.content_id}",
+                        f"actor: {version.actor_id}",
+                        f"timestamp: {version.timestamp}",
+                        f"size: {version.size} bytes",
+                    ]))
+            else:
+                findings.append(Finding(
+                    "verifier", "high",
+                    f"Version {version.label!r} ({short}…) has "
+                    f"{len(faults)} problem(s).",
+                    evidence=faults))
+        total = len(chain_problems) + sum(
+            len(v) for v in version_problems.values())
+        if total == 0:
+            summary = (f"Verified ledger: {event_count} events, "
+                       f"{len(self.project.versions)} version(s), "
+                       "no problems.")
+        else:
+            summary = f"Found {total} ledger problem(s)."
+        return findings, summary
 
     def _run_stub(self, agent_id: str) -> tuple[list[Finding], str]:
         """A specialist whose work is not implemented yet.
