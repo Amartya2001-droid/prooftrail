@@ -116,12 +116,16 @@ class TestOrchestrator(unittest.TestCase):
     def test_stub_findings_are_marked_not_implemented(self):
         project = _project_with_version()
         report = Orchestrator(project).run({"kind": "verify_project"})
-        stubs = [f for f in report.findings
-                 if f.agent_id in ("detective", "narrator")]
+        stubs = [f for f in report.findings if f.agent_id == "narrator"]
         self.assertTrue(stubs)
         for finding in stubs:
             self.assertEqual(finding.status, "not_implemented")
             self.assertIn("not yet implemented", finding.message)
+        # Sleuth is real now: its finding is complete.
+        detective = [f for f in report.findings
+                     if f.agent_id == "detective"]
+        self.assertTrue(detective)
+        self.assertTrue(all(f.status == "complete" for f in detective))
 
     def test_unknown_kind_raises(self):
         project = _project_with_version()

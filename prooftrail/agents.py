@@ -26,6 +26,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from .diffing import diff_texts, split_sentences
 from .store import Actor, AgentRun, Project
 
 
@@ -208,6 +209,31 @@ def _timestamp_problems(project: Project) -> tuple[
     return event_problems, version_problems
 
 
+# -- Sleuth: anomaly detection ----------------------------------------------
+
+# Thresholds for what counts as an anomaly. Deterministic, so two runs
+# over the same project always agree.
+AUTHOR_FLIP_NEW_PCT = 25.0  # new-sentence share that makes an actor change a flip
+UNDECLARED_MIN_SENTENCES = 3  # added sentences before "no declaration" is worth noting
+TIMELINE_GAP_DAYS = 30  # days between versions that counts as a gap
+
+
+def _version_texts(project: Project) -> list[str]:
+    """The text of every version, in order."""
+    return [project.read(v).decode(errors="replace")
+            for v in project.versions]
+
+
+def _version_events(project: Project) -> list[dict]:
+    """The upload/edit/restore ledger events, in version order.
+
+    The i-th version corresponds to the i-th version event: each
+    upload appends exactly one of them, in the same order.
+    """
+    return [e for e in project.ledger.events
+            if e["type"] in ("upload", "edit", "restore")]
+
+
 # -- orchestrator -----------------------------------------------------------
 
 class Orchestrator:
@@ -217,8 +243,9 @@ class Orchestrator:
     The orchestrator itself (Trailboss) never judges content: it
     picks the team for the task kind, runs each specialist, and
     derives the verdict from what they return. Verity re-verifies
-    the ledger per version for real; the other specialists are
-    honest stubs until their Day 2 work lands.
+    the ledger per version for real and Sleuth hunts anomalies for
+    real; the cartographer and narrator are honest stubs until their
+    Day 2 work lands.
     """
 
     # Which specialists work each kind of task, in run order.
@@ -318,7 +345,9 @@ class Orchestrator:
         """Run one specialist. Returns (findings, one-line summary)."""
         if agent_id == "verifier":
             return self._run_verifier()
-        if agent_id in ("detective", "cartographer", "narrator"):
+        if agent_id == "detective":
+            return self._run_detective()
+        if agent_id in ("cartographer", "narrator"):
             return self._run_stub(agent_id)
         raise ValueError(f"unknown agent: {agent_id!r}")
 
@@ -384,6 +413,164 @@ class Orchestrator:
                        "no problems.")
         else:
             summary = f"Found {total} ledger problem(s)."
+        return findings, summary
+
+    def _run_detective(self) -> tuple[list[Finding], str]:
+        """Sleuth hunts anomalies in the version history for real.
+
+        Sudden rewrites and authorship flips come from sentence
+        diffs between consecutive versions; undeclared AI use is
+        checked against the declarations on record (absence of a
+        declaration is reported as such, never as proof of AI use);
+        timeline gaps come from version timestamps. A restore is
+        named as a restore, not mistaken for a rewrite.
+        """
+        project = self.project
+        versions = project.versions
+        texts = _version_texts(project)
+        events = _version_events(project)
+        by_label: dict[str, list] = {}
+        for decl in project.declarations():
+            by_label.setdefault(decl.version_label, []).append(decl)
+        findings: list[Finding] = []
+        for i, version in enumerate(versions):
+            label = version.label
+            old_text = texts[i - 1] if i else ""
+            old_actor = versions[i - 1].actor_id if i else None
+            diff = diff_texts(old_text, texts[i])
+            is_restore = (i < len(events)
+                          and events[i]["type"] == "restore")
+            if is_restore:
+                findings.append(Finding(
+                    "detective", "info",
+                    f"Version {label!r} restored an earlier version's "
+                    "content; the change is a rollback, not new "
+                    "writing.",
+                    evidence=[f"content_id: {version.content_id}",
+                              f"actor: {version.actor_id}",
+                              f"timestamp: {version.timestamp}"]))
+                continue
+            if diff.intent == "rewrite":
+                findings.append(Finding(
+                    "detective", "medium",
+                    f"Version {label!r} rewrote most of the document: "
+                    f"{len(diff.added)} of {diff.new_count} sentences "
+                    f"new, {len(diff.removed)} of {diff.old_count} "
+                    f"removed ({diff.new_sentence_pct:.0f}% new, "
+                    f"{diff.removed_sentence_pct:.0f}% removed).",
+                    evidence=[
+                        f"actor: {version.actor_id}",
+                        f"timestamp: {version.timestamp}",
+                        f"added sentences: {len(diff.added)}",
+                        f"removed sentences: {len(diff.removed)}",
+                    ]))
+            if (old_actor is not None
+                    and version.actor_id != old_actor
+                    and diff.new_sentence_pct >= AUTHOR_FLIP_NEW_PCT):
+                findings.append(Finding(
+                    "detective", "medium",
+                    f"Authorship changed from {old_actor} to "
+                    f"{version.actor_id} in version {label!r}: "
+                    f"{diff.new_sentence_pct:.0f}% of sentences are new.",
+                    evidence=[
+                        f"previous actor: {old_actor}",
+                        f"actor: {version.actor_id}",
+                        f"timestamp: {version.timestamp}",
+                    ]))
+            # Declarations vs what actually changed in this version.
+            decls = by_label.get(label, [])
+            added = diff.added
+            if decls:
+                if not added:
+                    tools = ", ".join(sorted({d.tool for d in decls}))
+                    findings.append(Finding(
+                        "detective", "low",
+                        f"Declaration for version {label!r} names "
+                        f"{tools} but the version added no new "
+                        "sentences, so the declaration covers nothing.",
+                        evidence=[f"actor: {version.actor_id}",
+                                  f"timestamp: {version.timestamp}"]))
+                else:
+                    covered: set[int] = set()
+                    new_sents = split_sentences(texts[i])
+                    added_set = set(added)
+                    all_covered = False
+                    for decl in decls:
+                        if not decl.sentence_indices:
+                            all_covered = True
+                            break
+                        for idx in decl.sentence_indices:
+                            if (0 <= idx < len(new_sents)
+                                    and new_sents[idx] in added_set):
+                                covered.add(idx)
+                    covered_count = (len(added) if all_covered
+                                     else len(covered))
+                    if covered_count < len(added):
+                        tools = ", ".join(sorted({d.tool for d in decls}))
+                        findings.append(Finding(
+                            "detective", "low",
+                            f"Declaration for version {label!r} ({tools}) "
+                            f"covers {covered_count} of {len(added)} "
+                            "added sentences; "
+                            f"{len(added) - covered_count} added "
+                            "sentence(s) have no declared tool.",
+                            evidence=[
+                                f"actor: {version.actor_id}",
+                                f"timestamp: {version.timestamp}",
+                                f"added sentences: {len(added)}",
+                                f"declared sentences: {covered_count}",
+                            ]))
+            # The first version has no prior text to compare against:
+            # its sentences are the document's birth, not an edit, so
+            # "added without a declaration" is not an anomaly there.
+            # A declaration on v1 is still checked for coverage above.
+            elif i > 0 and len(added) >= UNDECLARED_MIN_SENTENCES:
+                findings.append(Finding(
+                    "detective", "low",
+                    f"Version {label!r} added {len(added)} sentences "
+                    "with no AI-use declaration on record. Absence "
+                    "of a declaration is not proof of authorship — "
+                    "it only means none was declared.",
+                    evidence=[f"actor: {version.actor_id}",
+                              f"timestamp: {version.timestamp}",
+                              f"added sentences: {len(added)}"]))
+        # Timeline gaps between consecutive versions.
+        for i in range(1, len(versions)):
+            prev_ts = _parse_timestamp(versions[i - 1].timestamp)
+            ts = _parse_timestamp(versions[i].timestamp)
+            if prev_ts is None or ts is None:
+                continue
+            gap = ts - prev_ts
+            if gap.days < 0:
+                findings.append(Finding(
+                    "detective", "medium",
+                    f"Version {versions[i].label!r} is timestamped "
+                    f"{versions[i].timestamp}, before its parent "
+                    f"{versions[i - 1].label!r} "
+                    f"({versions[i - 1].timestamp}).",
+                    evidence=[f"actor: {versions[i].actor_id}"]))
+            elif gap.days > TIMELINE_GAP_DAYS:
+                findings.append(Finding(
+                    "detective", "info",
+                    f"{gap.days} days passed between version "
+                    f"{versions[i - 1].label!r} and "
+                    f"{versions[i].label!r} with no new version.",
+                    evidence=[
+                        f"from: {versions[i - 1].timestamp}",
+                        f"to: {versions[i].timestamp}",
+                    ]))
+        anomalies = [f for f in findings if f.severity != "info"]
+        if not findings:
+            findings.append(Finding(
+                "detective", "info",
+                "No anomalies found: no sudden rewrites, authorship "
+                "flips, timeline gaps or undeclared additions.",
+                evidence=[f"versions checked: {len(versions)}"]))
+            summary = (f"No anomalies found across {len(versions)} "
+                       "version(s).")
+        else:
+            summary = (f"Found {len(anomalies)} anomaly(ies) across "
+                       f"{len(versions)} version(s).")
         return findings, summary
 
     def _run_stub(self, agent_id: str) -> tuple[list[Finding], str]:
