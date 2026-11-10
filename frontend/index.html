@@ -16,6 +16,7 @@
     <button id="nav-projects" type="button">Projects</button>
     <button id="nav-versions" type="button">Versions</button>
     <button id="nav-verify" type="button">Verify</button>
+    <button id="nav-agents" type="button">Agent team</button>
     <button id="nav-diff" type="button">Diff</button>
     <button id="nav-declarations" type="button">Declarations</button>
     <button id="nav-export" type="button">Export and sessions</button>
@@ -118,6 +119,35 @@
     <h3>Recent ledger events</h3>
     <ul id="verify-events"></ul>
     <button id="button-events-more" type="button" hidden>Load more events</button>
+  </section>
+
+  <section id="section-agents" hidden>
+    <h2>Agent team</h2>
+    <p>Five named specialists work a project when you run the team.
+    Verity re-verifies the ledger, Sleuth hunts anomalies, Mapper
+    maps who wrote what, Scribe writes the plain-language proof
+    narrative, and Trailboss coordinates them and merges their
+    findings into one report. Every run is written into the signed
+    ledger as it happens, so a run's findings are tamper-evident
+    like everything else.</p>
+    <p id="agent-project">No project selected.</p>
+    <ul id="agent-roster">
+      <li>Trailboss — orchestrator: coordinates the team and merges findings.</li>
+      <li>Verity — verifier: re-verifies hash chains, signatures and timestamps.</li>
+      <li>Sleuth — detective: hunts rewrites, authorship flips, undeclared AI use, timeline gaps.</li>
+      <li>Mapper — cartographer: maps who wrote what, per version and per actor.</li>
+      <li>Scribe — narrator: turns the team's evidence into plain language.</li>
+    </ul>
+    <button id="button-run-verify" type="button">Verify project</button>
+    <button id="button-run-dispute" type="button">Build dispute case</button>
+    <p id="agent-run-status" role="status"></p>
+    <h3>Latest report</h3>
+    <p id="agent-report-verdict">No run yet.</p>
+    <ul id="agent-report-summaries"></ul>
+    <h3>Findings</h3>
+    <ul id="agent-report-findings"></ul>
+    <h3>Past runs</h3>
+    <ul id="agent-runs-list"></ul>
   </section>
 
   <section id="section-diff" hidden>

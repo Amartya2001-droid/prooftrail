@@ -95,6 +95,28 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn('"Archive"', text)
         self.assertIn('"Unarchive"', text)
 
+    def test_agent_team_tab_runs_the_team_and_shows_the_report(self):
+        # The Agent team tab must offer both run kinds, call the run
+        # endpoint, and render the returned verdict, summaries and
+        # findings — otherwise the team can only run from code.
+        js = (FRONTEND / "app.js").read_text()
+        html = (FRONTEND / "index.html").read_text()
+        self.assertIn('"agents"', js)
+        self.assertIn("button-run-verify", js)
+        self.assertIn("button-run-dispute", js)
+        self.assertIn("/agents/run", js)
+        self.assertIn('"verify_project"', js)
+        self.assertIn('"build_dispute_case"', js)
+        self.assertIn("agent-report-verdict", js)
+        self.assertIn("agent-report-summaries", js)
+        self.assertIn("agent-report-findings", js)
+        self.assertIn("agent-runs-list", js)
+        self.assertIn("Trailboss", html)
+        self.assertIn("Verity", html)
+        self.assertIn("Sleuth", html)
+        self.assertIn("Mapper", html)
+        self.assertIn("Scribe", html)
+
 
 if __name__ == "__main__":
     unittest.main()

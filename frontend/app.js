@@ -47,7 +47,7 @@ async function api(path, options) {
 }
 
 const SECTIONS = [
-  "auth", "projects", "versions", "verify",
+  "auth", "projects", "versions", "verify", "agents",
   "diff", "declarations", "export", "bundle",
 ];
 
@@ -165,6 +165,8 @@ async function loadSection(section) {
     await loadVersions();
   } else if (section === "verify") {
     await loadVerify();
+  } else if (section === "agents") {
+    await loadAgents();
   } else if (section === "diff") {
     await loadDiffOptions();
   } else if (section === "declarations") {
@@ -446,10 +448,76 @@ async function loadVerify() {
     + " ledger events).");
 }
 
+const AGENT_NAMES = {
+  orchestrator: "Trailboss",
+  verifier: "Verity",
+  detective: "Sleuth",
+  cartographer: "Mapper",
+  narrator: "Scribe",
+};
+
+function agentDisplayName(agentId) {
+  return AGENT_NAMES[agentId] || agentId;
+}
+
+function renderAgentReport(report) {
+  $("agent-report-verdict").textContent = "Run " + report.run_id
+    + " — " + report.task_kind + " — verdict: " + report.verdict + ".";
+  renderList("agent-report-summaries",
+    Object.entries(report.summaries), ([agentId, summary]) =>
+      agentDisplayName(agentId) + ": " + summary);
+  renderList("agent-report-findings", report.findings, (finding) =>
+    "[" + finding.severity + "] " + agentDisplayName(finding.agent_id)
+    + ": " + finding.message
+    + (finding.evidence.length
+      ? " (" + finding.evidence.join("; ") + ")" : ""));
+}
+
+async function loadAgents() {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  const data = await api("/api/projects/" + currentProjectId
+    + "/agents/runs?limit=20&offset=0");
+  $("agent-project").textContent = "Project: " + currentProjectId;
+  renderList("agent-runs-list", data.runs, (run) =>
+    run.run_id + " — " + run.task_kind + " — " + run.status
+    + " — " + run.findings_count + " finding(s) — started "
+    + run.started_at);
+}
+
+async function runAgentTeam(kind) {
+  if (!currentProjectId) {
+    setStatus("Pick a project on the Projects tab first.");
+    return;
+  }
+  $("agent-run-status").textContent = "Running the agent team…";
+  try {
+    const report = await api("/api/projects/" + currentProjectId
+      + "/agents/run", { method: "POST", body: { kind } });
+    renderAgentReport(report);
+    $("agent-run-status").textContent = "Run finished: verdict "
+      + report.verdict + ".";
+    await loadAgents();
+  } catch (error) {
+    $("agent-run-status").textContent = "";
+    showError(error);
+  }
+}
+
+function initAgents() {
+  $("button-run-verify").addEventListener("click", async () => {
+    await runAgentTeam("verify_project");
+  });
+  $("button-run-dispute").addEventListener("click", async () => {
+    await runAgentTeam("build_dispute_case");
+  });
+}
+
 // Paging state for the versions list. A fresh load (project select,
 // upload) resets to the first page; Load more appends the next page.
-let versionOffset = 0;
-const VERSION_PAGE = 50;
+let versionOffset = 0;const VERSION_PAGE = 50;
 
 async function loadVersions(reset) {
   const list = $("version-list");
@@ -795,6 +863,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initProjects();
   initCollaborators();
   initVerify();
+  initAgents();
   initBundle();
   initVersions();
   initDiff();
