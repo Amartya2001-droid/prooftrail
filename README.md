@@ -76,6 +76,10 @@ only, so closing the tab signs the browser out.
 
 ## Deploying (not deployed yet)
 
+Live status: **not live yet** — blocked by production host/domain and DNS,
+TLS proxy setup, and production Supabase environment provisioning. There is no
+live URL. See [DEPLOY.md](DEPLOY.md) for the deployment preparation runbook.
+
 The server binds to 127.0.0.1 by default and has no TLS of its own,
 so a public deployment is a reverse proxy in front of it, never the
 app exposed directly. `deploy/Caddyfile` is a working example: Caddy
