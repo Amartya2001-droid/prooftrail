@@ -126,6 +126,16 @@ class TestOrchestrator(unittest.TestCase):
                      if f.agent_id == "detective"]
         self.assertTrue(detective)
         self.assertTrue(all(f.status == "complete" for f in detective))
+        # Mapper is real now too: only the narrator is still a stub.
+        dispute = Orchestrator(project).run(
+            {"kind": "build_dispute_case"})
+        mapper = [f for f in dispute.findings
+                  if f.agent_id == "cartographer"]
+        self.assertTrue(mapper)
+        self.assertTrue(all(f.status == "complete" for f in mapper))
+        self.assertTrue(all(f.status == "not_implemented"
+                            for f in dispute.findings
+                            if f.agent_id == "narrator"))
 
     def test_unknown_kind_raises(self):
         project = _project_with_version()

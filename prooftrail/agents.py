@@ -26,6 +26,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from .contributions import SOURCES, build_map
 from .diffing import diff_texts, split_sentences
 from .store import Actor, AgentRun, Project
 
@@ -243,9 +244,9 @@ class Orchestrator:
     The orchestrator itself (Trailboss) never judges content: it
     picks the team for the task kind, runs each specialist, and
     derives the verdict from what they return. Verity re-verifies
-    the ledger per version for real and Sleuth hunts anomalies for
-    real; the cartographer and narrator are honest stubs until their
-    Day 2 work lands.
+    the ledger per version for real, Sleuth hunts anomalies for
+    real, and Mapper maps contributions for real; the narrator is
+    an honest stub until its Day 2 work lands.
     """
 
     # Which specialists work each kind of task, in run order.
@@ -347,7 +348,9 @@ class Orchestrator:
             return self._run_verifier()
         if agent_id == "detective":
             return self._run_detective()
-        if agent_id in ("cartographer", "narrator"):
+        if agent_id == "cartographer":
+            return self._run_cartographer()
+        if agent_id == "narrator":
             return self._run_stub(agent_id)
         raise ValueError(f"unknown agent: {agent_id!r}")
 
@@ -571,6 +574,86 @@ class Orchestrator:
         else:
             summary = (f"Found {len(anomalies)} anomaly(ies) across "
                        f"{len(versions)} version(s).")
+        return findings, summary
+
+    def _run_cartographer(self) -> tuple[list[Finding], str]:
+        """Mapper builds the real contribution map for the project.
+
+        Who wrote what, per version and per actor: human vs
+        AI-assisted vs imported, from declarations plus version
+        metadata, using the same contribution map the project
+        already publishes. Imported and external passages can only
+        be recorded by explicit tagging, which the project does not
+        store yet, so those shares are 0% here — that is a gap in
+        the record, not proof none exist.
+        """
+        project = self.project
+        versions = project.versions
+        if not versions:
+            return ([Finding("cartographer", "info",
+                             "No versions to map yet.",
+                             evidence=["versions: 0"])],
+                    "No versions to map.")
+        texts = _version_texts(project)
+        cmap = build_map([(v.label, t) for v, t in zip(versions, texts)],
+                         project.declarations())
+        # Segments are appended version by version, one per sentence,
+        # so each version's slice is contiguous. A sentence counts
+        # toward a version only if it was first seen there: carried
+        # sentences keep their original version's attribution. The
+        # map stamps every occurrence with its own version, so
+        # first-seen is tracked here by sentence text instead.
+        per_version: list[dict[str, int]] = []
+        seen: set[str] = set()
+        offset = 0
+        for version, text in zip(versions, texts):
+            sents = split_sentences(text)
+            counts: dict[str, int] = {}
+            for sent, seg in zip(
+                    sents, cmap.segments[offset:offset + len(sents)]):
+                if sent not in seen:
+                    counts[seg.source] = counts.get(seg.source, 0) + 1
+            per_version.append(counts)
+            seen.update(sents)
+            offset += len(sents)
+        decl_tools: dict[str, list[str]] = {}
+        for decl in project.declarations():
+            decl_tools.setdefault(decl.version_label, []).append(decl.tool)
+        coverage = cmap.coverage()
+        findings: list[Finding] = [Finding(
+            "cartographer", "info",
+            "Contribution map: "
+            f"{len(cmap.segments)} segments — "
+            f"{coverage['human']:.0f}% human, "
+            f"{coverage['ai-assisted']:.0f}% AI-assisted, "
+            f"{coverage['imported']:.0f}% imported, "
+            f"{coverage['external']:.0f}% external. "
+            "Imported and external passages can only be recorded by "
+            "explicit tagging, which this project does not store yet, "
+            "so those shares are 0% here — a gap in the record, not "
+            "proof none exist. " + cmap.caveat,
+            evidence=[f"{src}: {coverage[src]:.1f}%"
+                      for src in SOURCES])]
+        for version, counts in zip(versions, per_version):
+            total = sum(counts.values())
+            parts = [f"{n} {src}" for src, n in sorted(counts.items())
+                     if n]
+            tools = decl_tools.get(version.label, [])
+            tool_note = (" (declared tool: "
+                         f"{', '.join(sorted(set(tools)))})" if tools
+                         else "")
+            findings.append(Finding(
+                "cartographer", "info",
+                f"Version {version.label!r} by {version.actor_id}: "
+                f"{total} sentence(s) first seen here — "
+                f"{', '.join(parts) if parts else 'none'}{tool_note}.",
+                evidence=[
+                    f"actor: {version.actor_id}",
+                    f"timestamp: {version.timestamp}",
+                ] + [f"{src}: {n}" for src, n in sorted(counts.items())]))
+        summary = (f"Mapped {len(versions)} version(s): "
+                   f"{coverage['human']:.0f}% human, "
+                   f"{coverage['ai-assisted']:.0f}% AI-assisted.")
         return findings, summary
 
     def _run_stub(self, agent_id: str) -> tuple[list[Finding], str]:
