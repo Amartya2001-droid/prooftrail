@@ -34,6 +34,7 @@ Endpoints (all JSON; project routes need ``Authorization: Bearer <token>``):
 - GET  /api/projects/<id>/verify      (verification page: hashes, no text)
 - GET  /api/agents/runs               (agent runs across own projects)
 - GET  /api/projects/<id>/agents/runs (agent runs on one project)
+- POST /api/projects/<id>/agents/run  {kind} -> run the agent team now
 - POST /api/bundles/verify            (verify a signed bundle; no auth)
 
 Run: python3 -m prooftrail.server --port 8000 --data prooftrail-data.json
@@ -58,6 +59,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
+from .agents import Orchestrator
 from .auth import (
     AuditLog,
     SessionStore,
@@ -157,6 +159,10 @@ OPENAPI_SPEC = {
             "get": {"summary": "Agent runs across own projects, paged"}},
         "/api/projects/{id}/agents/runs": {
             "get": {"summary": "Agent runs on one project, paged"}},
+        "/api/projects/{id}/agents/run": {
+            "post": {"summary": "Run the agent team on a project now; "
+                               "kind is verify_project or "
+                               "build_dispute_case"}},
         "/api/projects/{id}/verify": {
             "get": {"summary": "Verification page: hashes, no text"}},
         "/api/projects/{id}/export": {
@@ -1200,6 +1206,29 @@ class ProofTrailApp:
             return {"runs": runs[offset:offset + limit],
                     "total": len(runs), "limit": limit, "offset": offset}
 
+    def run_agents(self, token: str | None, project_id: str,
+                   kind: str) -> dict:
+        """Run the agent team on a project now and return its report.
+
+        ``kind`` is "verify_project" (Verity, Sleuth, Scribe) or
+        "build_dispute_case" (all four specialists). The run is
+        synchronous: the orchestrator writes its started/finding/
+        finished events into the signed ledger and records the run,
+        and the report comes back in this response. Collaborators
+        only — the same gate as every other project route.
+        """
+        if kind not in Orchestrator.TASK_AGENTS:
+            raise ApiError(
+                400,
+                "kind must be verify_project or build_dispute_case")
+        with self._lock:
+            actor = self._actor_for_token(token)
+            project = self._project_for(actor, project_id)
+            report = Orchestrator(project).run(
+                {"kind": kind, "project_id": project_id})
+            self._save()
+            return report.to_dict()
+
     def export(self, token: str | None, project_id: str,
                claim: str = "") -> dict:
         """A signed evidence bundle for the whole project, downloadable
@@ -1476,6 +1505,10 @@ def make_handler(app: ProofTrailApp):
                     and parts[3] == "agents" and parts[4] == "runs"):
                 return 200, app.agent_runs_for_project(
                     token, parts[2], *_parse_paging(query))
+            if (method == "POST" and len(parts) == 5
+                    and parts[:2] == ["api", "projects"]
+                    and parts[3] == "agents" and parts[4] == "run"):
+                return 200, app.run_agents(token, parts[2], body["kind"])
             if (method == "GET" and len(parts) == 4
                     and parts[:2] == ["api", "projects"]
                     and parts[3] == "verify"):

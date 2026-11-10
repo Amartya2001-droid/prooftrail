@@ -115,6 +115,15 @@ class Finding:
     evidence: list[str] = field(default_factory=list)
     status: str = "complete"
 
+    def to_dict(self) -> dict:
+        return {
+            "agent_id": self.agent_id,
+            "severity": self.severity,
+            "message": self.message,
+            "evidence": list(self.evidence),
+            "status": self.status,
+        }
+
 
 @dataclass
 class AgentReport:
@@ -126,6 +135,16 @@ class AgentReport:
     verdict: str  # "clean" | "issues_found" | "incomplete"
     summaries: dict[str, str]  # agent_id -> one-line summary
     findings: list[Finding] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "task_kind": self.task_kind,
+            "project_id": self.project_id,
+            "verdict": self.verdict,
+            "summaries": dict(self.summaries),
+            "findings": [f.to_dict() for f in self.findings],
+        }
 
 
 # -- Verity: deep verification ----------------------------------------------

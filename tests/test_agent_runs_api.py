@@ -54,7 +54,7 @@ class TestAgentRunsApi(unittest.TestCase):
                          "password": "sunset-river-42"})
         return login["token"]
 
-    def _project_with_run(self, conn, token, title="Brand deck"):
+    def _project(self, conn, token, title="Brand deck"):
         _, proj = call(conn, "POST", "/api/projects",
                        {"title": title}, token=token)
         pid = proj["project_id"]
@@ -62,9 +62,97 @@ class TestAgentRunsApi(unittest.TestCase):
              {"content_base64": base64.b64encode(b"First draft.").decode(),
               "label": "v1"},
              token=token)
+        return pid
+
+    def _project_with_run(self, conn, token, title="Brand deck"):
+        pid = self._project(conn, token, title)
         report = Orchestrator(self.app.projects[pid]).run(
             {"kind": "verify_project"})
         return pid, report
+
+    def test_trigger_runs_team_and_returns_report(self):
+        conn = self.conn()
+        token = self._login(conn, "owner-g")
+        pid = self._project(conn, token)
+        status, report = call(
+            conn, "POST", f"/api/projects/{pid}/agents/run",
+            {"kind": "verify_project"}, token=token)
+        self.assertEqual(status, 200)
+        self.assertEqual(report["task_kind"], "verify_project")
+        self.assertEqual(report["project_id"], pid)
+        self.assertEqual(report["verdict"], "clean")
+        self.assertEqual(set(report["summaries"]),
+                         {"verifier", "detective", "narrator"})
+        self.assertTrue(report["findings"])
+        self.assertTrue(report["run_id"])
+        for finding in report["findings"]:
+            self.assertIn(finding["agent_id"],
+                          ("verifier", "detective", "narrator"))
+            self.assertIn(finding["severity"],
+                          ("info", "low", "medium", "high"))
+
+    def test_trigger_dispute_case_runs_all_four(self):
+        conn = self.conn()
+        token = self._login(conn, "owner-h")
+        pid = self._project(conn, token)
+        status, report = call(
+            conn, "POST", f"/api/projects/{pid}/agents/run",
+            {"kind": "build_dispute_case"}, token=token)
+        self.assertEqual(status, 200)
+        self.assertEqual(set(report["summaries"]),
+                         {"verifier", "detective", "cartographer",
+                          "narrator"})
+        self.assertEqual(report["verdict"], "clean")
+
+    def test_trigger_rejects_unknown_kind(self):
+        conn = self.conn()
+        token = self._login(conn, "owner-i")
+        pid = self._project(conn, token)
+        status, data = call(
+            conn, "POST", f"/api/projects/{pid}/agents/run",
+            {"kind": "audit_everything"}, token=token)
+        self.assertEqual(status, 400)
+        self.assertIn("kind", data["error"])
+
+    def test_trigger_requires_auth_and_collaboration(self):
+        conn = self.conn()
+        token = self._login(conn, "owner-j")
+        pid = self._project(conn, token)
+        status, _ = call(conn, "POST",
+                         f"/api/projects/{pid}/agents/run",
+                         {"kind": "verify_project"})
+        self.assertEqual(status, 401)
+        other = self._login(conn, "outsider-j")
+        status, _ = call(conn, "POST",
+                         f"/api/projects/{pid}/agents/run",
+                         {"kind": "verify_project"}, token=other)
+        self.assertEqual(status, 403)
+        status, _ = call(conn, "POST",
+                         "/api/projects/no-such-project/agents/run",
+                         {"kind": "verify_project"}, token=token)
+        self.assertEqual(status, 404)
+
+    def test_trigger_records_run_and_ledger_events(self):
+        conn = self.conn()
+        token = self._login(conn, "owner-k")
+        pid = self._project(conn, token)
+        status, report = call(
+            conn, "POST", f"/api/projects/{pid}/agents/run",
+            {"kind": "verify_project"}, token=token)
+        self.assertEqual(status, 200)
+        status, listed = call(
+            conn, "GET", f"/api/projects/{pid}/agents/runs", token=token)
+        self.assertEqual(listed["total"], 1)
+        self.assertEqual(listed["runs"][0]["run_id"], report["run_id"])
+        self.assertEqual(listed["runs"][0]["findings_count"],
+                         len(report["findings"]))
+        status, events = call(
+            conn, "GET", f"/api/projects/{pid}/events?limit=200&offset=0",
+            token=token)
+        types = {e["type"] for e in events["events"]}
+        self.assertIn("agent_run_started", types)
+        self.assertIn("agent_run_finished", types)
+        self.assertIn("agent_finding", types)
 
     def test_runs_listed_per_project(self):
         conn = self.conn()
