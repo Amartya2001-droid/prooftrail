@@ -485,6 +485,7 @@ async function loadAgents() {
     run.run_id + " — " + run.task_kind + " — " + run.status
     + " — " + run.findings_count + " finding(s) — started "
     + run.started_at);
+  startActivityFeed();
 }
 
 async function runAgentTeam(kind) {
@@ -513,6 +514,70 @@ function initAgents() {
   $("button-run-dispute").addEventListener("click", async () => {
     await runAgentTeam("build_dispute_case");
   });
+  $("button-activity-refresh").addEventListener("click", async () => {
+    await loadActivity();
+  });
+}
+
+// Live activity feed: the project's newest ledger events and agent
+// runs merged into one timeline, newest first. The server has no
+// push channel, so the feed polls every 10 seconds while the Agent
+// team tab is open and stops itself once the tab is left.
+let activityTimer = null;
+const ACTIVITY_REFRESH_MS = 10000;
+
+function mergeActivity(events, runs) {
+  const entries = [];
+  for (const event of events) {
+    entries.push({
+      when: event.timestamp || "",
+      text: event.type + " — " + (event.actor || "?"),
+    });
+  }
+  for (const run of runs) {
+    entries.push({
+      when: run.finished_at || run.started_at || "",
+      text: "Agent run " + run.run_id + " — " + run.task_kind
+        + " — " + run.status + " — " + run.findings_count
+        + " finding(s)",
+    });
+  }
+  entries.sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0));
+  return entries.slice(0, 20);
+}
+
+async function loadActivity() {
+  if (!currentProjectId) {
+    return;
+  }
+  const [recent, runs] = await Promise.all([
+    api("/api/projects/" + currentProjectId
+      + "/events?limit=20&offset=0"),
+    api("/api/projects/" + currentProjectId
+      + "/agents/runs?limit=10&offset=0"),
+  ]);
+  renderList("activity-list",
+    mergeActivity(recent.events, runs.runs),
+    (entry) => entry.when + " — " + entry.text);
+}
+
+function stopActivityFeed() {
+  if (activityTimer !== null) {
+    clearInterval(activityTimer);
+    activityTimer = null;
+  }
+}
+
+function startActivityFeed() {
+  stopActivityFeed();
+  loadActivity().catch(showError);
+  activityTimer = setInterval(() => {
+    if ($("section-agents").hidden) {
+      stopActivityFeed();
+      return;
+    }
+    loadActivity().catch(showError);
+  }, ACTIVITY_REFRESH_MS);
 }
 
 // Paging state for the versions list. A fresh load (project select,

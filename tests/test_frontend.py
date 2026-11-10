@@ -117,6 +117,22 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn("Mapper", html)
         self.assertIn("Scribe", html)
 
+    def test_agent_team_tab_has_a_live_activity_feed(self):
+        # The feed merges ledger events and agent runs into one
+        # timeline and polls while the tab is open: the server has
+        # no push channel, so the UI must say so instead of
+        # pretending the feed is live by itself.
+        js = (FRONTEND / "app.js").read_text()
+        html = (FRONTEND / "index.html").read_text()
+        self.assertIn("mergeActivity", js)
+        self.assertIn("activity-list", js)
+        self.assertIn("button-activity-refresh", js)
+        self.assertIn("setInterval", js)
+        self.assertIn("clearInterval", js)
+        self.assertIn("ACTIVITY_REFRESH_MS", js)
+        self.assertIn("Refreshes", html)
+        self.assertIn("polls", html)
+
 
 if __name__ == "__main__":
     unittest.main()

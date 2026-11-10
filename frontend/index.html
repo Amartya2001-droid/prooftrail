@@ -148,6 +148,12 @@
     <ul id="agent-report-findings"></ul>
     <h3>Past runs</h3>
     <ul id="agent-runs-list"></ul>
+    <h3>Activity</h3>
+    <p>Newest first, across ledger events and agent runs. Refreshes
+    every 10 seconds while this tab is open. There is no push
+    channel: the server speaks plain HTTP, so the feed polls.</p>
+    <button id="button-activity-refresh" type="button">Refresh now</button>
+    <ul id="activity-list"></ul>
   </section>
 
   <section id="section-diff" hidden>
