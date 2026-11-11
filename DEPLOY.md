@@ -1,9 +1,9 @@
 # Production deployment preparation
 
 Status: **not live yet**. ProofTrail is currently localhost-only; no production
-URL, domain, host or deployed Supabase connection has been verified. Day 1 only
-prepares this runbook; it does not deploy anything. `example.com` in the existing
-Caddyfile is a placeholder, not the live URL.
+URL, domain, host or deployed Supabase connection has been verified. Days 1 and 2
+only prepare and verify this runbook; they do not deploy anything. `example.com`
+in the existing Caddyfile is a placeholder, not the live URL.
 
 ## Runtime and topology
 
@@ -41,7 +41,7 @@ manager or a restricted environment file outside the repository:
 `SUPABASE_KEY` is a legacy fallback; `SUPABASE_SERVICE_KEY` takes precedence.
 Use the explicit service-key name. Never put keys in the frontend, Caddyfile,
 command history, tracked files or logs. No secret values are included here.
-The current Day 1 execution environment has none of these variables configured;
+The Day 2 verification environment has none of these variables configured;
 no live Supabase request was made.
 
 Provision the table in the intended Supabase database before starting the app:
@@ -86,7 +86,27 @@ restricted credentials, restart policy and logs. Arrange database backups and a
 restore procedure before accepting real data; Supabase has no local `.bak`
 fallback. Health checks alone do not verify persistence.
 
-## Later release checks (not performed as a Day 1 deploy)
+## Agent team runtime and release verification
+
+The existing Agent team tab runs the team through authenticated
+`POST /api/projects/<id>/agents/run`, with JSON
+`{"kind": "verify_project"}` or `{"kind": "build_dispute_case"}`. Use a project
+accessible to the signed-in account. Runs execute synchronously and write signed
+ledger events and a persisted run log, so invoking this endpoint changes state.
+Include these writes in the persistence/restart checks below using test data.
+
+The tab merges the project's newest ledger events and agent runs into an activity
+feed and polls every 10 seconds while open. It uses ordinary HTTP requests, not
+WebSockets or server-sent events; no push-channel proxy configuration is needed.
+Run history is available at `GET /api/projects/<id>/agents/runs` and
+`GET /api/agents/runs` (both authenticated).
+
+For a later release, check both task kinds from the tab, the refreshed feed and
+run history, and persistence after restart. The unchanged local scenario can also
+be run with `python3 demo/agent_team_scenario.py`; it exercises both task kinds in
+memory, not the HTTP proxy or production Supabase connection.
+
+## Later release checks (no deployment performed on Days 1 or 2)
 
 1. Run `python3 -m unittest discover -s tests -v` and verify the selected commit's
    GitHub CI succeeds before release.

@@ -46,6 +46,17 @@ so the trust layer works anywhere Python runs.
 - `prooftrail/verification.py` — verification page data, evidence bundles
 - `demo/` — the freelance-designer v1 -> v2 -> v3 scenario
 
+## Verified status (Day 2 — November 11, 2026)
+
+Verified main at [`5083078`](https://github.com/Amartya2001-droid/prooftrail/commit/50830783196063035c6d558f3e0b69548d4930d7):
+106 reachable commits (`git rev-list --count`, including merge commits),
+273 tests passing on Python 3.12, and
+[CI green for that main commit](https://github.com/Amartya2001-droid/prooftrail/actions/runs/42920330486).
+These are figures for that snapshot, not a rolling count. The unchanged
+`demo/agent_team_scenario.py` also completed both tasks, recorded two runs,
+and left the ledger valid. The app remains localhost-only with no live URL;
+production Supabase connectivity has not been verified.
+
 ## Run the tests
 
 ```sh
