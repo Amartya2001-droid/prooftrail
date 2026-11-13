@@ -63,6 +63,28 @@ production Supabase connectivity has not been verified.
 python3 -m unittest discover -s tests -v
 ```
 
+## Java / Selenium end-to-end suite
+
+The app remains a real Python engine; `e2e/` contains a separate Maven, Selenium
+and JUnit suite. Its **five tests** cover the signed-in Projects dashboard,
+project creation/upload/verification, both Agent team tasks using the demo's
+actual scenario text and two collaborators, automatic/manual activity updates,
+and the Python demo CLI. Browser requests reach the real server; agent results
+are not stubbed. Scribe remains deterministic template text, not LLM reasoning.
+The Python suite count above refers to its verified main snapshot; the Java
+checks are additional and run in their own headless CI job.
+
+```sh
+# Start a fresh disposable app in one terminal (tests create accounts/projects):
+python3 -m prooftrail.server --port 8000 --data /tmp/prooftrail-e2e.json
+# In another terminal, with JDK 17+, Maven and Chrome installed:
+APP_BASE_URL=http://127.0.0.1:8000 mvn -f e2e/pom.xml verify
+```
+
+See [e2e/README.md](e2e/README.md) for driver configuration, coverage, CI artifacts
+and data cleanup. This suite requires no API keys and does not establish that a
+production service is live. There is still no live URL.
+
 ## Run the demo
 
 ```sh
