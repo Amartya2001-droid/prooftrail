@@ -40,7 +40,7 @@ the existing 10-second HTTP polling interval.
 | `APP_BASE_URL` | `http://127.0.0.1:8000`; an HTTP(S) origin, without credentials/path/query |
 | `CHROME_BINARY` | Optional explicit Chrome/Chromium executable |
 | `CHROMEDRIVER_PATH` | Optional compatible ChromeDriver executable; otherwise Selenium Manager |
-| `CHROME_NO_SANDBOX` | `false`; use `true` only where a container requires it |
+| `CHROME_NO_SANDBOX` | `false` locally; CI sets `true` for its disposable downloaded Chrome |
 | `PYTHON_EXECUTABLE` | `python3`; runs the local demo and reads its text fixtures |
 
 Example with a nondefault local port and an installed driver:
@@ -79,7 +79,8 @@ These tests do not prove real-world authorship, production TLS, or Supabase acce
 
 `.github/workflows/ci.yml` runs this as a separate Java Selenium E2E job for PRs
 and pushes to main. It starts a fresh Python app on port 8000, waits for health,
-installs matching Chrome/ChromeDriver, runs Maven, uploads JUnit reports and
+installs matching Chrome/ChromeDriver with sandbox disabled only in the disposable
+job, runs Maven, uploads JUnit reports and
 failure screenshots, and stops the app even after failure. No persistent state,
 passwords or session tokens are uploaded. Reports are in
 `e2e/target/surefire-reports/`; screenshots are in `e2e/target/screenshots/`.

@@ -23,6 +23,8 @@ jobs:
     env:
       APP_BASE_URL: http://127.0.0.1:8000
       PROOFTRAIL_STATE_BACKEND: json
+      # The downloaded Chrome binary runs in this disposable test job only.
+      CHROME_NO_SANDBOX: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

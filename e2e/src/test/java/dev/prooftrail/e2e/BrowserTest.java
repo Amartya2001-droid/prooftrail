@@ -54,7 +54,7 @@ abstract class BrowserTest {
         }
         ChromeOptions options = new ChromeOptions();
         options.addArguments("--headless=new", "--window-size=1440,1100", "--disable-dev-shm-usage");
-        // Optional for container environments; CI runners do not need this flag.
+        // Optional for restricted environments; enabled in the disposable CI job.
         if (Boolean.parseBoolean(env("CHROME_NO_SANDBOX", "false"))) {
             options.addArguments("--no-sandbox");
         }
