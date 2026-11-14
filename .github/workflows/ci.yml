@@ -15,3 +15,73 @@ jobs:
           python-version: "3.12"
       - name: Run test suite
         run: python3 -m unittest discover -s tests -v
+
+  e2e:
+    name: Java Selenium E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_BASE_URL: http://127.0.0.1:8000
+      PROOFTRAIL_STATE_BACKEND: json
+      # The downloaded Chrome binary runs in this disposable test job only.
+      CHROME_NO_SANDBOX: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: e2e/pom.xml
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Start disposable app and wait for health
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/prooftrail"
+          python3 -u -m prooftrail.server --host 127.0.0.1 --port 8000 \
+            --data "$RUNNER_TEMP/prooftrail/state.json" > "$RUNNER_TEMP/prooftrail.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/prooftrail.pid"
+          python3 - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          for attempt in range(60):
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=2) as response:
+                      if json.load(response).get("status") == "ok":
+                          break
+              except (OSError, urllib.error.URLError):
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit("ProofTrail failed to become healthy within 60 seconds")
+          PY
+      - name: Run Maven Selenium and demo tests headlessly
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+        run: mvn --batch-mode --no-transfer-progress -f e2e/pom.xml verify
+      - name: Upload JUnit reports and failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selenium-e2e-results
+          if-no-files-found: ignore
+          path: |
+            e2e/target/surefire-reports/
+            e2e/target/screenshots/
+      - name: Stop disposable app
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/prooftrail.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/prooftrail.pid")" 2>/dev/null || true
+          fi
