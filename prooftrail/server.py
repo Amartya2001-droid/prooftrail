@@ -73,7 +73,8 @@ from .auth import (
     validate_password,
 )
 from .contributions import build_map
-from .crypto import content_id
+from .crypto import content_id, sha256_hex
+from .demo_scenario import TITLE as DEMO_TITLE, sample_project
 from .diffing import diff_texts
 from .persistence import (load_state, objects_from_state, save_state,
                           state_to_dict)
@@ -94,6 +95,7 @@ OPENAPI_SPEC = {
     "openapi": "3.0.0",
     "info": {"title": "ProofTrail API", "version": __version__},
     "paths": {
+        "/api/demo/projects": {"post": {"summary": "Create private synthetic demo; request_id enables safe retry"}},
         "/api/health": {"get": {"summary": "Liveness check, no auth"}},
         "/api/users": {"post": {"summary": "Register a user"}},
         "/api/sessions": {"post": {"summary": "Log in, returns a token"}},
@@ -754,6 +756,23 @@ class ProofTrailApp:
             self._save()
             return {"project_id": project_id}
 
+    def create_demo(self, token: str | None, request_id: str) -> dict:
+        """Create one private sample per caller/request, safe to retry after a lost response."""
+        with self._lock:
+            owner = self._actor_for_token(token)
+            if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+                raise ApiError(400, "request_id must be 32 lowercase hexadecimal characters")
+            project_id = "demo-" + sha256_hex((owner.actor_id + ":" + request_id).encode())
+            created = project_id not in self.projects
+            if created:
+                project = sample_project(owner, project_id, _now)
+                self.projects[project_id] = project
+            # Repeat the save on a retry: an earlier save may have failed after
+            # building the in-memory project. Never generate another sample.
+            self._save()
+            return {"project_id": project_id, "title": DEMO_TITLE,
+                    "created": created, "synthetic": True}
+
     def list_projects(self, token: str | None,
                       limit: int = 50, offset: int = 0,
                       query: str = "", include_archived: bool = False) -> dict:
@@ -1401,6 +1420,8 @@ def make_handler(app: ProofTrailApp):
                 return 200, app.sessions_for(token)
             if method == "POST" and parts == ["api", "sessions", "revoke-one"]:
                 return 200, app.revoke_session(token, body["session_id"])
+            if method == "POST" and parts == ["api", "demo", "projects"]:
+                return 201, app.create_demo(token, body["request_id"])
             if method == "POST" and parts == ["api", "projects"]:
                 return 201, app.create_project(token, body["title"])
             if (method == "POST" and len(parts) == 4

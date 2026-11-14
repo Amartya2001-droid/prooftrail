@@ -27,17 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from prooftrail.agents import AgentReport, Orchestrator
 from prooftrail.store import Actor, Project
 
-V1 = ("Acadia Robotics Club announces its spring showcase. "
-      "The showcase opens on 14 March at the Student Union Building. "
-      "Admission is free for all students.")
-V2 = (V1 + " Our robots will demonstrate line following, maze solving, "
-      "and sumo wrestling. Bring your friends and meet the team "
-      "behind the machines.")
-V3 = ("Acadia Robotics Club invites everyone to its spring showcase. "
-      "Join us on 14 March at the Student Union Building for an "
-      "evening of live robot demos. Watch our robots follow lines, "
-      "solve mazes, and battle in sumo wrestling. "
-      "Admission is free, and everyone is welcome.")
+from prooftrail.demo_scenario import V1, V2, V3
 
 
 def build_scenario() -> tuple[Project, list[AgentReport]]:

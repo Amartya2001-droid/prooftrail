@@ -137,6 +137,45 @@ class ProofTrailFlowTest extends BrowserTest {
         assertFalse(text("activity-list").contains("undefined"));
     }
 
+    @Test
+    void dashboardGuidedDemoCompletesAndResumesWithoutDuplicateWrites() throws Exception {
+        nav("projects");
+        click("button-guided-demo");
+        textContains("status", "Sign in or register");
+        registerAndSignIn("Guided demo reviewer");
+        nav("projects");
+        click("button-guided-demo");
+        wait.until(d -> d.findElement(By.id("guided-demo-panel")).isDisplayed());
+        wait.until(d -> d.findElement(By.id("button-run-verify")).getDomProperty("disabled").equals("true"));
+        textContains("guided-demo-status", "Demo complete");
+        for (String step : List.of("sample", "verify", "dispute", "ledger")) {
+            assertEquals("done", driver.findElement(By.id("demo-step-" + step)).getDomAttribute("data-state"));
+        }
+        textContains("agent-report-summaries", "Mapper");
+        textContains("agent-report-findings", "rewrote most of the document");
+        textContains("activity-list", "Agent run");
+        ((org.openqa.selenium.JavascriptExecutor) driver).executeScript("window.scrollTo(0, 0)");
+        java.nio.file.Path screenshots = java.nio.file.Path.of(System.getProperty("e2e.outputDir"));
+        java.nio.file.Files.createDirectories(screenshots);
+        java.nio.file.Files.write(screenshots.resolve("guided-demo.png"),
+            ((org.openqa.selenium.TakesScreenshot) driver).getScreenshotAs(org.openqa.selenium.OutputType.BYTES));
+        assertEquals(2, driver.findElements(By.cssSelector("#agent-runs-list > li")).size());
+        nav("projects");
+        wait.until(d -> d.findElement(By.id("project-list")).getText().contains("Demo — Robotics"));
+        assertEquals(1, driver.findElements(By.cssSelector("#project-list > li")).size());
+        driver.navigate().refresh();
+        nav("projects");
+        click("button-guided-demo");
+        textContains("guided-demo-status", "Demo complete");
+        assertEquals(2, driver.findElements(By.cssSelector("#agent-runs-list > li")).size());
+        nav("verify");
+        textContains("verify-valid", "Ledger valid:");
+        assertEquals(3, driver.findElements(By.cssSelector("#verify-chain > li")).size());
+        nav("projects");
+        wait.until(d -> d.findElement(By.id("project-list")).getText().contains("Demo — Robotics"));
+        assertEquals(1, driver.findElements(By.cssSelector("#project-list > li")).size());
+    }
+
     private int eventCount(String type) {
         return (int) driver.findElements(By.cssSelector("#activity-list > li")).stream()
                 .filter(row -> row.getText().contains(" — " + type + " — ")).count();
