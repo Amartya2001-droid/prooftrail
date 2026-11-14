@@ -174,6 +174,15 @@ class ProofTrailFlowTest extends BrowserTest {
         nav("projects");
         wait.until(d -> d.findElement(By.id("project-list")).getText().contains("Demo — Robotics"));
         assertEquals(1, driver.findElements(By.cssSelector("#project-list > li")).size());
+        String independentTitle = "Independent project " + UUID.randomUUID();
+        fill("project-title", independentTitle);
+        clickCss("#form-create-project button[type=submit]");
+        wait.until(d -> projectRow(independentTitle));
+        // Navigate directly: do not click Select, which has its own reset path.
+        nav("agents");
+        textEquals("agent-runs-list", "None.");
+        assertFalse(driver.findElement(By.id("guided-demo-panel")).isDisplayed(),
+                "A different project must not show the sample's completed checklist");
     }
 
     private int eventCount(String type) {

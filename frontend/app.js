@@ -1019,6 +1019,7 @@ function initProjects() {
     await loadProjects();
     currentProjectId = result.project_id;
     clearAgentReport();
+    $("guided-demo-panel").hidden = true;
   });
 }
 
