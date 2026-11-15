@@ -7,3 +7,18 @@ input, select { width: 100%; box-sizing: border-box; }
 button { cursor: pointer; }
 #status { font-weight: bold; }
 pre { white-space: pre-wrap; overflow-wrap: break-word; background: #f4f4f4; padding: 1rem; }
+
+.demo-card { padding: 1rem; border: 1px solid #64748b; border-radius: 0.5rem; background: #f5f8fc; margin: 1rem 0; }
+.demo-card li { margin: 0.5rem 0; }
+.demo-card li[data-state="running"] { font-weight: bold; }
+.demo-card li[data-state="done"]::after { content: " ✓"; color: #176338; }
+button:disabled { opacity: 0.6; cursor: wait; }
+#agent-report-findings li { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.75rem 0; }
+
+.agent-overview { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.agent-overview:has(#guided-demo-panel[hidden]) { display: block; }
+.activity-card { min-width: 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 0.5rem; margin: 1rem 0; }
+#activity-list { max-height: 22rem; overflow-y: auto; overflow-wrap: anywhere; padding-left: 1.25rem; }
+@media (max-width: 650px) { .agent-overview { display: block; } }
+
+.demo-card li[data-state="paused"]::after { content: " — paused"; color: #7c4a03; }

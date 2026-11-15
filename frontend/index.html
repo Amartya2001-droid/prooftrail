@@ -65,6 +65,14 @@
 
   <section id="section-projects" hidden>
     <h2>Projects</h2>
+    <aside class="demo-card">
+      <h3>See a proof trail in action</h3>
+      <p>Run a guided sample: an original announcement, a declared AI-assisted
+      addition, and an undeclared rewrite. Watch the team verify it and build a
+      dispute case. This creates a private sample project in your account.</p>
+      <button id="button-guided-demo" type="button">Run guided demo</button>
+      <p>Synthetic sample actors and declarations; no AI service is called.</p>
+    </aside>
     <form id="form-create-project">
       <label>Title <input id="project-title" required></label>
       <button type="submit">Create project</button>
@@ -130,6 +138,31 @@
     findings into one report. Every run is written into the signed
     ledger as it happens, so a run's findings are tamper-evident
     like everything else.</p>
+    <div class="agent-overview">
+    <aside id="guided-demo-panel" class="demo-card" hidden>
+      <h3>Guided demo</h3>
+      <p id="guided-demo-status" role="status" aria-live="polite"></p>
+      <ol id="guided-demo-steps">
+        <li id="demo-step-sample">Create signed sample history (v1 → v2 + declaration → v3)</li>
+        <li id="demo-step-verify">Verify project with Verity, Sleuth and Scribe</li>
+        <li id="demo-step-dispute">Build dispute case, including Mapper</li>
+        <li id="demo-step-ledger">Check the final ledger</li>
+      </ol>
+      <p>Reports and activity below update after each completed request. Agent
+      work is synchronous; this is not a streaming feed. A clean verdict means
+      no high-severity findings: review medium and low findings too. Scribe's
+      narrative is deterministic template text, not LLM reasoning.</p>
+      <button id="button-resume-demo" type="button" hidden>Resume guided demo</button>
+    </aside>
+    <aside class="activity-card">
+    <h3>Activity</h3>
+    <p>Newest first, across ledger events and agent runs. Refreshes
+    every 10 seconds while this tab is open. There is no push
+    channel: the server speaks plain HTTP, so the feed polls.</p>
+    <button id="button-activity-refresh" type="button">Refresh now</button>
+    <ul id="activity-list"></ul>
+    </aside>
+    </div>
     <p id="agent-project">No project selected.</p>
     <ul id="agent-roster">
       <li>Trailboss — orchestrator: coordinates the team and merges findings.</li>
@@ -148,12 +181,7 @@
     <ul id="agent-report-findings"></ul>
     <h3>Past runs</h3>
     <ul id="agent-runs-list"></ul>
-    <h3>Activity</h3>
-    <p>Newest first, across ledger events and agent runs. Refreshes
-    every 10 seconds while this tab is open. There is no push
-    channel: the server speaks plain HTTP, so the feed polls.</p>
-    <button id="button-activity-refresh" type="button">Refresh now</button>
-    <ul id="activity-list"></ul>
+
   </section>
 
   <section id="section-diff" hidden>

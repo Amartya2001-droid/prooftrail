@@ -66,7 +66,7 @@ python3 -m unittest discover -s tests -v
 ## Java / Selenium end-to-end suite
 
 The app remains a real Python engine; `e2e/` contains a separate Maven, Selenium
-and JUnit suite. Its **five tests** cover the signed-in Projects dashboard,
+and JUnit suite. Its **six tests** cover the signed-in Projects dashboard,
 project creation/upload/verification, both Agent team tasks using the demo's
 actual scenario text and two collaborators, automatic/manual activity updates,
 and the Python demo CLI. Browser requests reach the real server; agent results
@@ -84,6 +84,38 @@ APP_BASE_URL=http://127.0.0.1:8000 mvn -f e2e/pom.xml verify
 See [e2e/README.md](e2e/README.md) for driver configuration, coverage, CI artifacts
 and data cleanup. This suite requires no API keys and does not establish that a
 production service is live. There is still no live URL.
+
+## Guided demo from the dashboard
+
+Register and sign in, open **Projects**, and choose **Run guided demo**. The app
+creates a private sample, opens **Agent team**, runs verification and dispute
+analysis, then verifies the resulting ledger. A checklist shows the current task;
+reports, past runs and activity update after each completed request. The server
+runs tasks synchronously; this is not streamed progress.
+
+The sample shares the CLI's original announcement, declared v2 addition and v3
+rewrite. Its writer/editor are freshly generated **synthetic signing actors**, not
+real accounts or proof of anyone's authorship. Their signing keys are discarded
+after sample creation. The ChatGPT declaration is sample input; no AI service is
+called. Your signed-in account owns the project and can inspect/export its real
+hashes, signatures, declarations and findings.
+
+If a request fails, use **Resume guided demo**. Creation is idempotent per account
+and request ID, and the guide checks saved run history before repeating a task.
+Reloading and choosing Run guided demo again resumes the same sample in that
+browser tab's session; clearing session storage or signing out starts a new sample
+next time. The sample and its run history remain in Projects after restarting the
+server. A completed report body is shown when a task runs in the current view;
+on resume, previously completed tasks are listed under Past runs. Medium/low
+findings can coexist with a clean verdict. Scribe remains deterministic text.
+
+`POST /api/demo/projects` requires authentication and a `request_id` containing
+32 lowercase hexadecimal characters. It creates sample data, not agent runs;
+the guide invokes the existing run endpoints separately. No API key is required.
+The Python suite has **278 checks**, including sample persistence/auth/privacy
+and lost-response resume behavior; the Java suite has **6 checks**, including the
+guided flow and reload without duplicate projects or runs. Branch CI is the
+source of truth for these additions; the Day 2 snapshot above remains historical.
 
 ## Run the demo
 

@@ -125,3 +125,14 @@ Outstanding decisions for Amartya: production host/domain and DNS, secure Supaba
 URL/service-key provisioning, database/table readiness, data migration choice,
 backup ownership and operational process supervision. No agent-team code changes
 are needed or included in this preparation.
+
+
+## Guided demo release check
+
+On a disposable staging account, choose Projects → Run guided demo. Verify all
+four checklist steps complete, both tasks appear in Past runs, Activity contains
+signed events, and Verify shows a valid three-version ledger. Reload and run the
+guide again: the same sample and two completed runs should remain, without new
+copies. This writes synthetic data; it does not contact an AI service. The new
+`POST /api/demo/projects` route uses the same authenticated server and persistence
+backend, with no new service or environment variable.

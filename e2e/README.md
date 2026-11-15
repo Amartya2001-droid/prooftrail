@@ -57,7 +57,7 @@ For a sandbox with a read-only home, add `-Dmaven.repo.local=/writable/path/m2`.
 No credentials are read from the environment: each browser test registers unique,
 disposable accounts at runtime and keeps the generated passwords in memory.
 
-## Five checks
+## Six checks
 
 - Landing page and signed-in Projects dashboard, empty list, and Agent team
   guidance when no project is selected.
@@ -67,6 +67,8 @@ disposable accounts at runtime and keeps the generated passwords in memory.
   persisted run history, activity events, and ledger verification afterward.
 - Activity polling across two real browser tabs: a second upload appears without
   clicking refresh; manual refresh and newest-first ordering are also checked.
+- Dashboard guided demo: sign-in guidance, sample creation, progress checklist,
+  both tasks and activity, then reload/resume with no duplicate projects or runs.
 - Existing `demo/agent_team_scenario.py` CLI completes both tasks and reports two
   runs, valid ledger, rewrite findings and the honest limitations.
 
@@ -81,6 +83,6 @@ These tests do not prove real-world authorship, production TLS, or Supabase acce
 and pushes to main. It starts a fresh Python app on port 8000, waits for health,
 installs matching Chrome/ChromeDriver with sandbox disabled only in the disposable
 job, runs Maven, uploads JUnit reports and
-failure screenshots, and stops the app even after failure. No persistent state,
+failure screenshots plus a completed guided-demo screenshot, and stops the app even after failure. No persistent state,
 passwords or session tokens are uploaded. Reports are in
 `e2e/target/surefire-reports/`; screenshots are in `e2e/target/screenshots/`.

@@ -15,6 +15,11 @@ function setToken(value) {
     sessionStorage.setItem("pt-token", value);
   } else {
     sessionStorage.removeItem("pt-token");
+    sessionStorage.removeItem("pt-demo-request");
+    currentProjectId = null;
+    demoGeneration += 1;
+    $("guided-demo-panel").hidden = true;
+    clearAgentReport();
   }
   refreshAuthState();
 }
@@ -52,6 +57,7 @@ const SECTIONS = [
 ];
 
 function showSection(name) {
+  if (name !== "agents") stopActivityFeed();
   for (const section of SECTIONS) {
     $("section-" + section).hidden = section !== name;
   }
@@ -478,8 +484,11 @@ async function loadAgents() {
     setStatus("Pick a project on the Projects tab first.");
     return;
   }
-  const data = await api("/api/projects/" + currentProjectId
+  const projectId = currentProjectId;
+  const runToken = token();
+  const data = await api("/api/projects/" + projectId
     + "/agents/runs?limit=20&offset=0");
+  if (projectId !== currentProjectId || runToken !== token()) return;
   $("agent-project").textContent = "Project: " + currentProjectId;
   renderList("agent-runs-list", data.runs, (run) =>
     run.run_id + " — " + run.task_kind + " — " + run.status
@@ -489,25 +498,139 @@ async function loadAgents() {
 }
 
 async function runAgentTeam(kind) {
+  if (demoBusy || manualAgentBusy) return;
+  const projectId = currentProjectId;
+  const runToken = token();
   if (!currentProjectId) {
     setStatus("Pick a project on the Projects tab first.");
     return;
   }
+  manualAgentBusy = true;
+  setDemoControls();
   $("agent-run-status").textContent = "Running the agent team…";
   try {
     const report = await api("/api/projects/" + currentProjectId
       + "/agents/run", { method: "POST", body: { kind } });
+    if (projectId !== currentProjectId || runToken !== token()) return;
     renderAgentReport(report);
     $("agent-run-status").textContent = "Run finished: verdict "
       + report.verdict + ".";
     await loadAgents();
   } catch (error) {
     $("agent-run-status").textContent = "";
-    showError(error);
+    if (projectId === currentProjectId && runToken === token()) showError(error);
+  } finally {
+    manualAgentBusy = false;
+    setDemoControls();
+  }
+}
+
+let demoBusy = false;
+let manualAgentBusy = false;
+let demoGeneration = 0;
+
+function clearAgentReport() {
+  $("agent-report-verdict").textContent = "No report in this view yet.";
+  $("agent-run-status").textContent = "";
+  for (const id of ["agent-report-summaries", "agent-report-findings",
+    "agent-runs-list", "activity-list"]) $(id).textContent = "";
+}
+
+function setDemoControls() {
+  const busy = demoBusy || manualAgentBusy;
+  for (const id of ["button-guided-demo", "button-resume-demo",
+    "button-run-verify", "button-run-dispute"]) $(id).disabled = busy;
+  $("guided-demo-panel").setAttribute("aria-busy", String(demoBusy));
+}
+
+function demoStep(id, state) {
+  $("demo-step-" + id).dataset.state = state;
+}
+
+async function runGuidedDemo() {
+  if (demoBusy || manualAgentBusy) return;
+  if (!token()) {
+    showSection("auth");
+    setStatus("Sign in or register, then choose Run guided demo on Projects.");
+    return;
+  }
+  const runToken = token();
+  const generation = ++demoGeneration;
+  let projectId = null;
+  const previousProjectId = currentProjectId;
+  function stillCurrent() {
+    if (runToken !== token() || generation !== demoGeneration ||
+      (projectId ? currentProjectId !== projectId : currentProjectId !== previousProjectId)) throw new Error("Demo paused: the account or selected project changed.");
+  }
+  demoBusy = true;
+  setDemoControls();
+  clearAgentReport();
+  $("guided-demo-panel").hidden = false;
+  $("button-resume-demo").hidden = true;
+  for (const step of ["sample", "verify", "dispute", "ledger"]) demoStep(step, "pending");
+  showSection("agents");
+  try {
+    let requestId = sessionStorage.getItem("pt-demo-request");
+    if (!requestId || !/^[0-9a-f]{32}$/.test(requestId)) {
+      requestId = crypto.randomUUID().replaceAll("-", "");
+      sessionStorage.setItem("pt-demo-request", requestId);
+    }
+    demoStep("sample", "running");
+    $("guided-demo-status").textContent = "Preparing signed sample history…";
+    const sample = await api("/api/demo/projects", {method: "POST", body: {request_id: requestId}});
+    stillCurrent();
+    projectId = sample.project_id;
+    currentProjectId = projectId;
+    $("versions-project").textContent = "Selected: " + sample.title;
+    demoStep("sample", "done");
+    await loadAgents();
+    await loadActivity();
+    for (const [step, kind, label] of [
+      ["verify", "verify_project", "Verifying hashes, signatures and anomalies…"],
+      ["dispute", "build_dispute_case", "Mapping contributions and building the dispute case…"],
+    ]) {
+      stillCurrent();
+      demoStep(step, "running");
+      $("guided-demo-status").textContent = label;
+      const history = await api("/api/projects/" + projectId + "/agents/runs?limit=200&offset=0");
+      stillCurrent();
+      if (!history.runs.some(run => run.task_kind === kind && run.status === "finished")) {
+        const report = await api("/api/projects/" + projectId + "/agents/run", {method: "POST", body: {kind}});
+        stillCurrent();
+        renderAgentReport(report);
+      }
+      demoStep(step, "done");
+      await loadAgents();
+      await loadActivity();
+    }
+    stillCurrent();
+    demoStep("ledger", "running");
+    $("guided-demo-status").textContent = "Checking that the signed ledger still verifies…";
+    const verification = await api("/api/projects/" + projectId + "/verify");
+    stillCurrent();
+    if (!verification.ledger_valid) throw new Error("Ledger verification failed. Review Verify before continuing.");
+    demoStep("ledger", "done");
+    $("guided-demo-status").textContent = "Demo complete — three versions, two finished agent tasks, ledger valid. Explore Findings, Past runs, Activity, Versions and Verify.";
+    if (!$("agent-report-findings").textContent) $("agent-report-verdict").textContent = "Tasks completed previously. See Past runs; run a task manually for a fresh report.";
+    setStatus("Guided demo complete. This is synthetic sample history, not evidence of real authorship.");
+  } catch (error) {
+    if (runToken === token() && generation === demoGeneration) {
+      for (const step of ["sample", "verify", "dispute", "ledger"]) {
+        if ($("demo-step-" + step).dataset.state === "running") demoStep(step, "paused");
+      }
+      $("guided-demo-status").textContent = "Demo paused. " + error.message + " Resume checks saved history before repeating a task.";
+      $("button-resume-demo").hidden = false;
+      showError(error);
+    }
+  } finally {
+    demoBusy = false;
+    setDemoControls();
   }
 }
 
 function initAgents() {
+  $("button-guided-demo").addEventListener("click", runGuidedDemo);
+  $("button-resume-demo").addEventListener("click", runGuidedDemo);
   $("button-run-verify").addEventListener("click", async () => {
     await runAgentTeam("verify_project");
   });
@@ -515,7 +638,7 @@ function initAgents() {
     await runAgentTeam("build_dispute_case");
   });
   $("button-activity-refresh").addEventListener("click", async () => {
-    await loadActivity();
+    try { await loadActivity(); } catch (error) { showError(error); }
   });
 }
 
@@ -550,12 +673,15 @@ async function loadActivity() {
   if (!currentProjectId) {
     return;
   }
+  const projectId = currentProjectId;
+  const runToken = token();
   const [recent, runs] = await Promise.all([
-    api("/api/projects/" + currentProjectId
+    api("/api/projects/" + projectId
       + "/events?limit=20&offset=0"),
-    api("/api/projects/" + currentProjectId
+    api("/api/projects/" + projectId
       + "/agents/runs?limit=10&offset=0"),
   ]);
+  if (projectId !== currentProjectId || runToken !== token()) return;
   renderList("activity-list",
     mergeActivity(recent.events, runs.runs),
     (entry) => entry.when + " — " + entry.text);
@@ -814,6 +940,8 @@ async function loadProjects() {
     select.textContent = "Select";
     select.addEventListener("click", () => {
       currentProjectId = project.project_id;
+      clearAgentReport();
+      $("guided-demo-panel").hidden = true;
       $("versions-project").textContent = "Selected: " + project.title;
       showSection("versions");
       loadVersions().catch(showError);
@@ -890,6 +1018,8 @@ function initProjects() {
     setStatus("Project created.");
     await loadProjects();
     currentProjectId = result.project_id;
+    clearAgentReport();
+    $("guided-demo-panel").hidden = true;
   });
 }
 
