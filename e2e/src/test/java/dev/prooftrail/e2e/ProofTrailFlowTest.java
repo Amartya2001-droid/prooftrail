@@ -129,8 +129,8 @@ class ProofTrailFlowTest extends BrowserTest {
         new WebDriverWait(driver, Duration.ofSeconds(35)).until(d -> eventCount("edit") == 1);
         click("button-activity-refresh");
         wait.until(d -> eventCount("upload") == 1 && eventCount("edit") == 1);
-        List<String> times = driver.findElements(By.cssSelector("#activity-list > li")).stream()
-                .map(row -> row.getText().split(" — ", 2)[0]).toList();
+        List<String> times = activityLines().stream()
+                .map(line -> line.split(" — ", 2)[0]).toList();
         for (int i = 1; i < times.size(); i++) {
             assertTrue(times.get(i - 1).compareTo(times.get(i)) >= 0, "Activity must be newest first");
         }
@@ -152,6 +152,8 @@ class ProofTrailFlowTest extends BrowserTest {
             assertEquals("done", driver.findElement(By.id("demo-step-" + step)).getDomAttribute("data-state"));
         }
         textContains("agent-report-summaries", "Mapper");
+        String originalProject = text("agent-project");
+        String originalRuns = text("agent-runs-list");
         textContains("agent-report-findings", "rewrote most of the document");
         textContains("activity-list", "Agent run");
         ((org.openqa.selenium.JavascriptExecutor) driver).executeScript("window.scrollTo(0, 0)");
@@ -174,6 +176,25 @@ class ProofTrailFlowTest extends BrowserTest {
         nav("projects");
         wait.until(d -> d.findElement(By.id("project-list")).getText().contains("Demo — Robotics"));
         assertEquals(1, driver.findElements(By.cssSelector("#project-list > li")).size());
+        nav("agents");
+        click("button-fresh-demo");
+        textContains("guided-demo-status", "Demo complete");
+        assertNotEquals(originalProject, text("agent-project"));
+        assertEquals(2, driver.findElements(By.cssSelector("#agent-runs-list > li")).size());
+        nav("projects");
+        wait.until(d -> d.findElements(By.cssSelector("#project-list > li")).size() == 2);
+        // Projects are newest-first. Re-find the older row inside the bounded wait.
+        wait.until(d -> {
+            var rows = d.findElements(By.cssSelector("#project-list > li"));
+            if (rows.size() != 2) return false;
+            rows.get(1).findElement(By.xpath(".//button[text()='Select']")).click();
+            return true;
+        });
+        nav("agents");
+        textEquals("agent-project", originalProject);
+        textEquals("agent-runs-list", originalRuns);
+        nav("projects");
+        wait.until(d -> d.findElements(By.cssSelector("#project-list > li")).size() == 2);
         String independentTitle = "Independent project " + UUID.randomUUID();
         fill("project-title", independentTitle);
         clickCss("#form-create-project button[type=submit]");
@@ -185,8 +206,16 @@ class ProofTrailFlowTest extends BrowserTest {
                 "A different project must not show the sample's completed checklist");
     }
 
+    @SuppressWarnings("unchecked")
+    private List<String> activityLines() {
+        // The poll replaces <li> nodes. Read one DOM snapshot instead of keeping
+        // WebElements that can become stale between remote getText() calls.
+        return (List<String>) ((org.openqa.selenium.JavascriptExecutor) driver).executeScript(
+                "return Array.from(document.querySelectorAll('#activity-list > li'), row => row.innerText)");
+    }
+
     private int eventCount(String type) {
-        return (int) driver.findElements(By.cssSelector("#activity-list > li")).stream()
-                .filter(row -> row.getText().contains(" — " + type + " — ")).count();
+        return (int) activityLines().stream()
+                .filter(line -> line.contains(" — " + type + " — ")).count();
     }
 }

@@ -538,13 +538,21 @@ function clearAgentReport() {
 
 function setDemoControls() {
   const busy = demoBusy || manualAgentBusy;
-  for (const id of ["button-guided-demo", "button-resume-demo",
+  for (const id of ["button-guided-demo", "button-resume-demo", "button-fresh-demo",
     "button-run-verify", "button-run-dispute"]) $(id).disabled = busy;
   $("guided-demo-panel").setAttribute("aria-busy", String(demoBusy));
 }
 
 function demoStep(id, state) {
   $("demo-step-" + id).dataset.state = state;
+}
+
+async function startFreshDemo() {
+  // Do not drop a pending request's idempotency key or replace its project.
+  if (demoBusy || manualAgentBusy) return;
+  if (!token()) return runGuidedDemo();
+  sessionStorage.removeItem("pt-demo-request");
+  await runGuidedDemo();
 }
 
 async function runGuidedDemo() {
@@ -629,6 +637,7 @@ async function runGuidedDemo() {
 }
 
 function initAgents() {
+  $("button-fresh-demo").addEventListener("click", startFreshDemo);
   $("button-guided-demo").addEventListener("click", runGuidedDemo);
   $("button-resume-demo").addEventListener("click", runGuidedDemo);
   $("button-run-verify").addEventListener("click", async () => {
