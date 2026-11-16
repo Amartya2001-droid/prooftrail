@@ -33,7 +33,9 @@ All browser tests run headlessly and independently, without fixed test sleeps or
 an ordering requirement. The agent operations verify real Ed25519 signatures in
 pure Python, so waits allow up to 120 seconds for UI results. The separate demo
 process has a 180-second deadline. The activity test waits up to 35 seconds for
-the existing 10-second HTTP polling interval.
+the existing 10-second HTTP polling interval. Activity assertions read an atomic
+browser-side text snapshot so a poll replacing rows cannot invalidate retained
+WebElement handles; there are no blanket test retries.
 
 | Environment variable | Default / purpose |
 | --- | --- |
@@ -68,7 +70,8 @@ disposable accounts at runtime and keeps the generated passwords in memory.
 - Activity polling across two real browser tabs: a second upload appears without
   clicking refresh; manual refresh and newest-first ordering are also checked.
 - Dashboard guided demo: sign-in guidance, sample creation, progress checklist,
-  both tasks and activity, then reload/resume with no duplicate projects or runs.
+  both tasks and activity, reload/resume with no duplicate projects or runs,
+  and a deliberate fresh start that preserves the previous sample and its runs.
 - Existing `demo/agent_team_scenario.py` CLI completes both tasks and reports two
   runs, valid ledger, rewrite findings and the honest limitations.
 

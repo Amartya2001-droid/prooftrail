@@ -102,6 +102,11 @@ hashes, signatures, declarations and findings.
 
 If a request fails, use **Resume guided demo**. Creation is idempotent per account
 and request ID, and the guide checks saved run history before repeating a task.
+Choose **Start fresh sample** in the guide to create another sample without
+signing out or clearing browser storage. The old project, signed history and
+runs remain in Projects. Fresh-start and run controls are disabled while a
+request is in progress; repeated clicks cannot replace a pending sample.
+
 Reloading and choosing Run guided demo again resumes the same sample in that
 browser tab's session; clearing session storage or signing out starts a new sample
 next time. The sample and its run history remain in Projects after restarting the
