@@ -4,6 +4,8 @@ Demo actors are freshly generated signing keys, not user accounts or evidence of
 real authorship. Their private keys are discarded after fixture creation.
 """
 from .store import Actor, Project
+from .crypto import content_id
+from .contributions import Declaration
 
 V1 = ("Acadia Robotics Club announces its spring showcase. "
       "The showcase opens on 14 March at the Student Union Building. "
@@ -19,6 +21,7 @@ V3 = ("Acadia Robotics Club invites everyone to its spring showcase. "
 
 
 TITLE = "Demo — Robotics Showcase Announcement"
+DEMO_PROMPT = "Synthetic demo declaration: draft the demo paragraph"
 
 
 def sample_project(owner: Actor, project_id: str, clock) -> Project:
@@ -33,9 +36,36 @@ def sample_project(owner: Actor, project_id: str, clock) -> Project:
         project.upload(actor, text.encode(), clock(), label,
                        filename=label + ".txt", content_type="text/plain")
     project.declare(editor, project.versions[1], "ChatGPT",
-                    "Synthetic demo declaration: draft the demo paragraph", [], clock())
+                    DEMO_PROMPT, [], clock())
     project.upload(editor, V3.encode(), clock(), "v3",
                    filename="v3.txt", content_type="text/plain")
     writer.secret_key = b""
     editor.secret_key = b""
     return project
+
+
+def matches_scenario(project: Project) -> bool:
+    """Match saved versions/declarations, not title or later agent activity.
+
+    This is a fixture check, not a replacement for ledger verification.
+    """
+    if len(project.versions) != 3:
+        return False
+    parent = None
+    for version, text, suffix, label in zip(
+            project.versions, (V1, V2, V3), ("writer", "editor", "editor"),
+            ("v1", "v2", "v3")):
+        data = text.encode()
+        if (version.content_id != content_id(data)
+                or version.parent_content_id != parent
+                or version.actor_id != project.project_id + "-" + suffix
+                or version.label != label):
+            return False
+        try:
+            if project.read(version) != data:
+                return False
+        except KeyError:
+            return False
+        parent = version.content_id
+    return project.declarations() == [Declaration(
+        "v2", project.project_id + "-editor", "ChatGPT", DEMO_PROMPT, [])]

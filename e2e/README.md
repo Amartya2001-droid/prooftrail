@@ -71,7 +71,8 @@ disposable accounts at runtime and keeps the generated passwords in memory.
   clicking refresh; manual refresh and newest-first ordering are also checked.
 - Dashboard guided demo: sign-in guidance, sample creation, progress checklist,
   both tasks and activity, reload/resume with no duplicate projects or runs,
-  and a deliberate fresh start that preserves the previous sample and its runs.
+  an edited-sample pause without reusing old analysis, and a deliberate fresh
+  start that preserves the previous sample, its edited version and its runs.
 - Existing `demo/agent_team_scenario.py` CLI completes both tasks and reports two
   runs, valid ledger, rewrite findings and the honest limitations.
 
