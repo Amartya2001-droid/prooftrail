@@ -124,10 +124,20 @@ abstract class BrowserTest {
 
     protected void selectProject(String title) {
         nav("projects");
-        WebElement row = wait.until(d -> projectRow(title));
-        row.findElement(By.xpath(".//button[text()='Select']")).click();
+        clickProjectControl(title, "Select");
         wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("section-versions")));
         textContains("versions-project", title);
+    }
+
+    protected void clickProjectControl(String title, String action) {
+        // These controls only navigate/read. A pending list refresh can replace
+        // its rows, so re-find and click inside the existing bounded stale-aware wait.
+        wait.until(d -> {
+            WebElement row = projectRow(title);
+            if (row == null) return false;
+            row.findElement(By.xpath(".//button[text()='" + action + "']")).click();
+            return true;
+        });
     }
 
     protected void upload(String label, String text, int expectedVersions) {

@@ -59,7 +59,7 @@ class ProofTrailFlowTest extends BrowserTest {
         String title = "Disputed announcement " + UUID.randomUUID();
         createProject(title);
         nav("projects");
-        wait.until(d -> projectRow(title)).findElement(By.xpath(".//button[text()='Collaborators']")).click();
+        clickProjectControl(title, "Collaborators");
         textContains("collaborator-project", title);
         fill("collaborator-username", editor.username());
         clickCss("#form-add-collaborator button[type=submit]");

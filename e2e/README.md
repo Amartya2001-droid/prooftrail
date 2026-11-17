@@ -35,7 +35,9 @@ pure Python, so waits allow up to 120 seconds for UI results. The separate demo
 process has a 180-second deadline. The activity test waits up to 35 seconds for
 the existing 10-second HTTP polling interval. Activity assertions read an atomic
 browser-side text snapshot so a poll replacing rows cannot invalidate retained
-WebElement handles; there are no blanket test retries.
+WebElement handles. Project-list Select/Collaborators controls re-find their row
+inside a bounded wait when the list refreshes; write actions are not retried.
+There are no blanket test retries.
 
 | Environment variable | Default / purpose |
 | --- | --- |
