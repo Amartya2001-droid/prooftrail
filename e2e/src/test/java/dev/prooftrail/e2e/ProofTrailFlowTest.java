@@ -59,7 +59,7 @@ class ProofTrailFlowTest extends BrowserTest {
         String title = "Disputed announcement " + UUID.randomUUID();
         createProject(title);
         nav("projects");
-        wait.until(d -> projectRow(title)).findElement(By.xpath(".//button[text()='Collaborators']")).click();
+        clickProjectControl(title, "Collaborators");
         textContains("collaborator-project", title);
         fill("collaborator-username", editor.username());
         clickCss("#form-add-collaborator button[type=submit]");
@@ -176,7 +176,15 @@ class ProofTrailFlowTest extends BrowserTest {
         nav("projects");
         wait.until(d -> d.findElement(By.id("project-list")).getText().contains("Demo — Robotics"));
         assertEquals(1, driver.findElements(By.cssSelector("#project-list > li")).size());
-        nav("agents");
+        nav("versions");
+        upload("Owner edit", "My own edited sample announcement. Preserve this version.", 4);
+        nav("projects");
+        click("button-guided-demo");
+        textContains("guided-demo-status", "sample has been edited");
+        assertFalse(driver.findElement(By.id("button-resume-demo")).isDisplayed());
+        assertTrue(driver.findElement(By.id("button-fresh-demo")).isEnabled());
+        textEquals("agent-runs-list", originalRuns);
+        assertEquals("paused", driver.findElement(By.id("demo-step-sample")).getDomAttribute("data-state"));
         click("button-fresh-demo");
         textContains("guided-demo-status", "Demo complete");
         assertNotEquals(originalProject, text("agent-project"));
@@ -193,6 +201,11 @@ class ProofTrailFlowTest extends BrowserTest {
         nav("agents");
         textEquals("agent-project", originalProject);
         textEquals("agent-runs-list", originalRuns);
+        nav("verify");
+        // The previous project's Verify view may still be visible until GET completes.
+        wait.until(d -> d.findElements(By.cssSelector("#verify-chain > li")).size() == 4
+                && d.findElement(By.id("verify-chain")).getText().contains("Owner edit"));
+        textContains("verify-valid", "Ledger valid:");
         nav("projects");
         wait.until(d -> d.findElements(By.cssSelector("#project-list > li")).size() == 2);
         String independentTitle = "Independent project " + UUID.randomUUID();

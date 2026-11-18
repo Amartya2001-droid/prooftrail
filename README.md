@@ -102,6 +102,13 @@ hashes, signatures, declarations and findings.
 
 If a request fails, use **Resume guided demo**. Creation is idempotent per account
 and request ID, and the guide checks saved run history before repeating a task.
+When starting or resuming, the guide checks that the saved versions and AI-use
+declarations still match the original fixture. If you edited the sample, it
+pauses instead of reusing old analysis or claiming three unchanged versions.
+Your edits and prior runs remain available in Versions, Verify and Past runs.
+Renaming alone and normal agent activity do not block resume. This fixture check
+is separate from ledger verification; it checks the saved sample at resume time.
+
 Choose **Start fresh sample** in the guide to create another sample without
 signing out or clearing browser storage. The old project, signed history and
 runs remain in Projects. Fresh-start and run controls are disabled while a
@@ -115,9 +122,11 @@ on resume, previously completed tasks are listed under Past runs. Medium/low
 findings can coexist with a clean verdict. Scribe remains deterministic text.
 
 `POST /api/demo/projects` requires authentication and a `request_id` containing
-32 lowercase hexadecimal characters. It creates sample data, not agent runs;
+32 lowercase hexadecimal characters. Its `matches_scenario` response flag checks
+the saved fixture at request time; it is not a ledger-verification result.
+It creates sample data, not agent runs;
 the guide invokes the existing run endpoints separately. No API key is required.
-The Python suite has **278 checks**, including sample persistence/auth/privacy
+The Python suite has **281 checks**, including sample persistence/auth/privacy
 and lost-response resume behavior; the Java suite has **6 checks**, including the
 guided flow and reload without duplicate projects or runs. Branch CI is the
 source of truth for these additions; the Day 2 snapshot above remains historical.

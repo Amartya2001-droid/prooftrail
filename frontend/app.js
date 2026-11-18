@@ -590,9 +590,16 @@ async function runGuidedDemo() {
     projectId = sample.project_id;
     currentProjectId = projectId;
     $("versions-project").textContent = "Selected: " + sample.title;
-    demoStep("sample", "done");
     await loadAgents();
     await loadActivity();
+    stillCurrent();
+    if (sample.matches_scenario !== true) {
+      demoStep("sample", "paused");
+      $("guided-demo-status").textContent = "This sample has been edited. Your changes are preserved. Choose Start fresh sample to run the original scenario, or inspect this project in Versions and Verify.";
+      setStatus("Guided demo paused: the saved sample changed. Your edits and prior runs are preserved.");
+      return;
+    }
+    demoStep("sample", "done");
     for (const [step, kind, label] of [
       ["verify", "verify_project", "Verifying hashes, signatures and anomalies…"],
       ["dispute", "build_dispute_case", "Mapping contributions and building the dispute case…"],

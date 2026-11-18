@@ -1,4 +1,5 @@
 """Guided sample creation uses real signatures, persistence and authorization."""
+import base64
 import http.client
 import json
 import secrets
@@ -59,6 +60,7 @@ class TestGuidedDemo(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertTrue(sample["created"])
         self.assertTrue(sample["synthetic"])
+        self.assertTrue(sample["matches_scenario"])
         project = self.app.projects[sample["project_id"]]
         self.assertEqual([project.read(v).decode() for v in project.versions], [V1, V2, V3])
         self.assertEqual(project.verify(), [])
@@ -104,3 +106,47 @@ class TestGuidedDemo(unittest.TestCase):
         project = loaded.projects[sample["project_id"]]
         self.assertEqual(project.verify(), [])
         self.assertEqual(len(project.versions), 3)
+
+
+    def test_edited_sample_is_preserved_and_detected_after_restart(self):
+        nonce = secrets.token_hex(16)
+        sample = self.app.create_demo(self.token, nonce)
+        project_id = sample["project_id"]
+        self.app.upload(self.token, project_id,
+                        base64.b64encode(b"The owner's own revised announcement.").decode(), "Owner edit")
+        project = self.app.projects[project_id]
+        before = project.ledger.to_json()
+        _, resumed = self.call({"request_id": nonce}, self.token)
+        self.assertEqual(resumed["project_id"], project_id)
+        self.assertFalse(resumed["created"])
+        self.assertFalse(resumed["matches_scenario"])
+        self.assertEqual(project.ledger.to_json(), before)
+        self.assertEqual(len(project.versions), 4)
+        self.assertEqual(project.verify(), [])
+        loaded = ProofTrailApp(self.path)
+        token = loaded.login("demo-owner", self.password)["token"]
+        self.assertFalse(loaded.create_demo(token, nonce)["matches_scenario"])
+        self.assertEqual(loaded.projects[project_id].ledger.to_json(), before)
+        fresh = self.app.create_demo(self.token, secrets.token_hex(16))
+        self.assertTrue(fresh["matches_scenario"])
+        self.assertNotEqual(fresh["project_id"], project_id)
+        self.assertEqual(project.ledger.to_json(), before)
+
+    def test_extra_declaration_changes_the_scenario(self):
+        nonce = secrets.token_hex(16)
+        sample = self.app.create_demo(self.token, nonce)
+        project = self.app.projects[sample["project_id"]]
+        self.app.declare(self.token, project.project_id, project.versions[-1].content_id,
+                         "Another tool", "Owner declaration")
+        before = project.ledger.to_json()
+        self.assertFalse(self.app.create_demo(self.token, nonce)["matches_scenario"])
+        self.assertEqual(project.ledger.to_json(), before)
+        self.assertEqual(len(project.declarations()), 2)
+
+    def test_renaming_does_not_change_the_scenario(self):
+        nonce = secrets.token_hex(16)
+        sample = self.app.create_demo(self.token, nonce)
+        self.app.rename(self.token, sample["project_id"], "My renamed sample")
+        resumed = self.app.create_demo(self.token, nonce)
+        self.assertTrue(resumed["matches_scenario"])
+        self.assertEqual(resumed["title"], "My renamed sample")

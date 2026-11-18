@@ -74,7 +74,7 @@ from .auth import (
 )
 from .contributions import build_map
 from .crypto import content_id, sha256_hex
-from .demo_scenario import TITLE as DEMO_TITLE, sample_project
+from .demo_scenario import matches_scenario, sample_project
 from .diffing import diff_texts
 from .persistence import (load_state, objects_from_state, save_state,
                           state_to_dict)
@@ -770,8 +770,10 @@ class ProofTrailApp:
             # Repeat the save on a retry: an earlier save may have failed after
             # building the in-memory project. Never generate another sample.
             self._save()
-            return {"project_id": project_id, "title": DEMO_TITLE,
-                    "created": created, "synthetic": True}
+            project = self.projects[project_id]
+            return {"project_id": project_id, "title": project.title,
+                    "created": created, "synthetic": True,
+                    "matches_scenario": matches_scenario(project)}
 
     def list_projects(self, token: str | None,
                       limit: int = 50, offset: int = 0,
