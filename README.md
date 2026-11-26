@@ -66,11 +66,12 @@ python3 -m unittest discover -s tests -v
 ## Java / Selenium end-to-end suite
 
 The app remains a real Python engine; `e2e/` contains a separate Maven, Selenium
-and JUnit suite. Its **six tests** cover the signed-in Projects dashboard,
+and JUnit suite. Its **seven tests** cover the signed-in Projects dashboard,
 project creation/upload/verification, both Agent team tasks using the demo's
 actual scenario text and two collaborators, automatic/manual activity updates,
-and the Python demo CLI. Browser requests reach the real server; agent results
-are not stubbed. Scribe remains deterministic template text, not LLM reasoning.
+the Versions reset/paging race, and the Python demo CLI. Browser requests reach
+the real server; agent results are not stubbed. Scribe remains deterministic
+template text, not LLM reasoning.
 The Python suite count above refers to its verified main snapshot; the Java
 checks are additional and run in their own headless CI job.
 
@@ -126,10 +127,16 @@ findings can coexist with a clean verdict. Scribe remains deterministic text.
 the saved fixture at request time; it is not a ledger-verification result.
 It creates sample data, not agent runs;
 the guide invokes the existing run endpoints separately. No API key is required.
-The Python suite has **281 checks**, including sample persistence/auth/privacy
-and lost-response resume behavior; the Java suite has **6 checks**, including the
+The Python suite has **289 checks**, including sample persistence/auth/privacy
+and lost-response resume behavior; the Java suite has **7 checks**, including the
 guided flow and reload without duplicate projects or runs. Branch CI is the
 source of truth for these additions; the Day 2 snapshot above remains historical.
+
+Versions resets clear the list and accept only the latest response for the
+selected project and session. Load more allows one pending page, keeps its offset
+on failure for retry, and ignores pages superseded by a reset. Eight deterministic
+client regressions control promise completion order; a browser regression delays
+delivery of real HTTP responses across a reset and a 50-to-52-version page.
 
 ## Run the demo
 

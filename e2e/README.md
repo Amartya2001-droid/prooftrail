@@ -1,8 +1,9 @@
 # Java browser end-to-end tests
 
 Real Selenium 4 + JUnit 5 tests, built with Maven. The app remains Python; Java is
-used to exercise its browser interface. No HTTP interception, mocked agent result,
-LLM call, external API key or service credential is involved.
+used to exercise its browser interface. No server payload or agent result is
+mocked. The Versions race check gates delivery of actual HTTP responses to reproduce out-of-order completion. No LLM
+call, external API key or service credential is involved.
 
 ## Run
 
@@ -61,7 +62,7 @@ For a sandbox with a read-only home, add `-Dmaven.repo.local=/writable/path/m2`.
 No credentials are read from the environment: each browser test registers unique,
 disposable accounts at runtime and keeps the generated passwords in memory.
 
-## Six checks
+## Seven checks
 
 - Landing page and signed-in Projects dashboard, empty list, and Agent team
   guidance when no project is selected.
@@ -75,6 +76,10 @@ disposable accounts at runtime and keeps the generated passwords in memory.
   both tasks and activity, reload/resume with no duplicate projects or runs,
   an edited-sample pause without reusing old analysis, and a deliberate fresh
   start that preserves the previous sample, its edited version and its runs.
+- Versions history with 52 real signed uploads: newer reset delivered before an
+  older reset without duplicate rows, and repeated Load more calls sharing one
+  pending page request. Real HTTP response delivery is controlled with promises;
+  no fixed sleeps or replacement response payloads are used.
 - Existing `demo/agent_team_scenario.py` CLI completes both tasks and reports two
   runs, valid ledger, rewrite findings and the honest limitations.
 
