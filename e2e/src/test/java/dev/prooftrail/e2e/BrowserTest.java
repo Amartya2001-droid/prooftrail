@@ -21,7 +21,7 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-/** Real browser + real server. No intercepted requests or mocked agent responses. */
+/** Real browser + real server. No mocked server payloads or agent responses. */
 abstract class BrowserTest {
     protected WebDriver driver;
     protected WebDriverWait wait;

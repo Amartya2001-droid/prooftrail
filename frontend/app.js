@@ -724,20 +724,60 @@ function startActivityFeed() {
 
 // Paging state for the versions list. A fresh load (project select,
 // upload) resets to the first page; Load more appends the next page.
-let versionOffset = 0;const VERSION_PAGE = 50;
+let versionOffset = 0;
+const VERSION_PAGE = 50;
+let versionsGeneration = 0;
+let versionsOwner = null;
+let versionRequest = null;
+
+function versionsRequestIsCurrent(request) {
+  return request.generation === versionsGeneration
+    && request.projectId === currentProjectId
+    && request.sessionToken === token();
+}
 
 async function loadVersions(reset) {
   const list = $("version-list");
-  if (!currentProjectId) {
-    setStatus("Pick a project on the Projects tab first.");
+  const more = $("button-versions-more");
+  const projectId = currentProjectId;
+  const sessionToken = token();
+  const ownerChanged = !versionsOwner || versionsOwner.projectId !== projectId
+    || versionsOwner.sessionToken !== sessionToken;
+  const fresh = reset !== false || ownerChanged || !projectId || !sessionToken;
+  if (fresh) {
+    versionsGeneration += 1;
+    versionsOwner = {projectId, sessionToken};
+    versionRequest = null;
+    versionOffset = 0;
+    list.innerHTML = "";
+    more.hidden = true;
+    more.disabled = false;
+  }
+  if (!projectId || !sessionToken) {
+    setStatus("Sign in and pick a project on the Projects tab first.");
     return;
   }
-  if (reset !== false) {
-    list.innerHTML = "";
-    versionOffset = 0;
+  // Only one page may be in flight for the current history. A reset supersedes
+  // any earlier read, including a page request for the same project/session.
+  if (!fresh && (versionRequest || more.hidden)) return;
+  const request = {projectId, sessionToken, generation: versionsGeneration, offset: versionOffset};
+  versionRequest = request;
+  more.disabled = true;
+  let data;
+  try {
+    data = await api("/api/projects/" + projectId
+      + "/versions?limit=" + VERSION_PAGE + "&offset=" + request.offset);
+  } catch (error) {
+    if (versionsRequestIsCurrent(request)) throw error;
+    return;
+  } finally {
+    // An obsolete completion must not unlock a newer request's control.
+    if (versionRequest === request) {
+      versionRequest = null;
+      more.disabled = false;
+    }
   }
-  const data = await api("/api/projects/" + currentProjectId
-    + "/versions?limit=" + VERSION_PAGE + "&offset=" + versionOffset);
+  if (!versionsRequestIsCurrent(request)) return;
   for (const version of data.versions) {
     const item = document.createElement("li");
     item.textContent = (version.label || version.content_id) + " — "
@@ -789,7 +829,7 @@ async function loadVersions(reset) {
     item.appendChild(download);
     list.appendChild(item);
   }
-  versionOffset += data.versions.length;
+  versionOffset = request.offset + data.versions.length;
   $("button-versions-more").hidden = versionOffset >= data.total;
   if (versionOffset === 0) {
     const item = document.createElement("li");

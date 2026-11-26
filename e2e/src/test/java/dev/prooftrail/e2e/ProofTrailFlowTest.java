@@ -219,6 +219,82 @@ class ProofTrailFlowTest extends BrowserTest {
                 "A different project must not show the sample's completed checklist");
     }
 
+    @Test
+    void versionsResetAndPagingOwnTheirDelayedResponses() {
+        registerAndSignIn("Versions race reviewer");
+        String title = "Versions race " + UUID.randomUUID();
+        var js = (org.openqa.selenium.JavascriptExecutor) driver;
+        driver.manage().timeouts().scriptTimeout(Duration.ofSeconds(120));
+        // Seed real signed versions via the real API, not mocked responses.
+        Map<?, ?> fixture = (Map<?, ?>) js.executeAsyncScript("""
+            const title = arguments[0], done = arguments[arguments.length - 1];
+            (async () => {
+              const post = async (path, body) => {
+                const response = await fetch(path, {method: 'POST', headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: 'Bearer ' + sessionStorage.getItem('pt-token')
+                }, body: JSON.stringify(body)});
+                if (!response.ok) throw new Error('Fixture HTTP ' + response.status);
+                return response.json();
+              };
+              const project = await post('/api/projects', {title});
+              for (let i = 0; i < 52; i++) {
+                await post('/api/projects/' + project.project_id + '/uploads', {
+                  content_base64: btoa('Draft ' + i + '.'), label: 'v' + i
+                });
+              }
+              done({project_id: project.project_id});
+            })().catch(error => done({error: error.message}));
+            """, title);
+        assertFalse(fixture.containsKey("error"), "Real API fixture setup must succeed");
+        selectProject(title);
+        wait.until(d -> d.findElements(By.cssSelector("#version-list > li")).size() == 50);
+        js.executeScript("""
+            window.__versionsFetch = window.fetch;
+            window.__versionRequests = [];
+            const prefix = '/api/projects/' + arguments[0] + '/versions?';
+            window.fetch = (...args) => {
+              const actual = window.__versionsFetch.apply(window, args);
+              if (!String(args[0]).startsWith(prefix)) return actual;
+              const request = {ready: false};
+              const gate = new Promise(resolve => request.release = resolve);
+              window.__versionRequests.push(request);
+              return actual.then(response => {
+                request.ready = true;
+                return gate.then(() => response);
+              });
+            };
+            """, fixture.get("project_id"));
+        try {
+            js.executeScript("window.__olderVersions = loadVersions(); window.__newerVersions = loadVersions();");
+            wait.until(d -> Boolean.TRUE.equals(js.executeScript(
+                    "return __versionRequests.length === 2 && __versionRequests.every(r => r.ready)")));
+            // Deliver the newer real response first, then the obsolete response.
+            js.executeScript("__versionRequests[1].release()");
+            assertNull(js.executeAsyncScript("const done=arguments[0]; __newerVersions.then(() => done(null), e => done(e.message))"));
+            assertEquals(50, driver.findElements(By.cssSelector("#version-list > li")).size());
+            js.executeScript("__versionRequests[0].release()");
+            assertNull(js.executeAsyncScript("const done=arguments[0]; __olderVersions.then(() => done(null), e => done(e.message))"));
+            assertEquals(50, driver.findElements(By.cssSelector("#version-list > li")).size(),
+                    "Obsolete reset must not append a duplicate first page");
+
+            js.executeScript("__versionRequests = []; window.__nextVersions = loadVersions(false); window.__duplicateNext = loadVersions(false);");
+            wait.until(d -> Boolean.TRUE.equals(js.executeScript(
+                    "return __versionRequests.length > 0 && __versionRequests.every(r => r.ready)")));
+            assertEquals(1, ((Number) js.executeScript("return __versionRequests.length")).intValue(),
+                    "Repeated next-page requests must coalesce while pending");
+            assertFalse(driver.findElement(By.id("button-versions-more")).isEnabled());
+            js.executeScript("__versionRequests[0].release()");
+            assertNull(js.executeAsyncScript("const done=arguments[0]; Promise.all([__nextVersions,__duplicateNext]).then(() => done(null), e => done(e.message))"));
+            assertEquals(52, driver.findElements(By.cssSelector("#version-list > li")).size());
+            assertEquals(52, ((Number) js.executeScript(
+                    "return new Set(Array.from(document.querySelectorAll('#version-list > li'), row => row.textContent)).size")).intValue());
+            assertFalse(driver.findElement(By.id("button-versions-more")).isDisplayed());
+        } finally {
+            js.executeScript("for (const r of window.__versionRequests || []) r.release(); window.fetch = window.__versionsFetch;");
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private List<String> activityLines() {
         // The poll replaces <li> nodes. Read one DOM snapshot instead of keeping
